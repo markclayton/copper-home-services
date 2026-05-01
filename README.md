@@ -1,109 +1,567 @@
-<a href="https://demo-nextjs-with-supabase.vercel.app/">
-  <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
-  <h1 align="center">Next.js and Supabase Starter Kit</h1>
-</a>
+# Copper
 
-<p align="center">
- The fastest way to build apps with Next.js and Supabase
-</p>
+AI receptionist for owner-operated home services businesses (HVAC, plumbing, electrical). Replaces missed calls, slow lead response, and forgotten review requests with always-on automation. Multi-tenant from day one — every customer is provisioned through the same script.
 
-<p align="center">
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#demo"><strong>Demo</strong></a> ·
-  <a href="#deploy-to-vercel"><strong>Deploy to Vercel</strong></a> ·
-  <a href="#clone-and-run-locally"><strong>Clone and run locally</strong></a> ·
-  <a href="#feedback-and-issues"><strong>Feedback and issues</strong></a>
-  <a href="#more-supabase-examples"><strong>More Examples</strong></a>
-</p>
-<br/>
+Built against [`flagship-v1-prd.md`](./flagship-v1-prd.md). V1 success criteria:
 
-## Features
+- New tenant from signed onboarding form to live phone number in **< 2 hours of operator time**
+- AI agent books **≥ 60 %** of missed calls in pilot
+- Review requests fire within 2 hours of job completion
+- Owner sees value daily via SMS digest + dashboard
 
-- Works across the entire [Next.js](https://nextjs.org) stack
-  - App Router
-  - Pages Router
-  - Proxy
-  - Client
-  - Server
-  - It just works!
-- supabase-ssr. A package to configure Supabase Auth to use cookies
-- Password-based authentication block installed via the [Supabase UI Library](https://supabase.com/ui/docs/nextjs/password-based-auth)
-- Styling with [Tailwind CSS](https://tailwindcss.com)
-- Components with [shadcn/ui](https://ui.shadcn.com/)
-- Optional deployment with [Supabase Vercel Integration and Vercel deploy](#deploy-your-own)
-  - Environment variables automatically assigned to Vercel project
+---
 
-## Demo
+## Tech stack
 
-You can view a fully working demo at [demo-nextjs-with-supabase.vercel.app](https://demo-nextjs-with-supabase.vercel.app/).
+| Layer | Choice |
+|---|---|
+| Voice agent | Vapi |
+| Telephony / SMS | Twilio |
+| Backend | Next.js 16 (App Router) + TypeScript route handlers |
+| DB | Supabase Postgres + RLS |
+| ORM / migrations | Drizzle |
+| Frontend | Next.js + Tailwind + shadcn/ui |
+| Booking | Cal.com (managed, v2 API) |
+| Background jobs | Inngest |
+| LLM (summaries) | OpenRouter via OpenAI SDK (default: `anthropic/claude-sonnet-4.5`); Vapi handles in-call model separately |
+| Payments | Stripe (Checkout + customer portal) |
+| Hosting | Vercel + Supabase + Inngest Cloud |
+| Errors | Sentry (planned, not yet wired) |
+| Logs | Vercel runtime logs + in-app `events` table |
 
-## Deploy to Vercel
+---
 
-Vercel deployment will guide you through creating a Supabase account and project.
+## Architecture at a glance
 
-After installation of the Supabase integration, all relevant environment variables will be assigned to the project so the deployment is fully functioning.
+```
+Customer phone ─► Twilio number ─► Vapi assistant
+                                        │
+                                        ▼
+                       /api/webhooks/vapi/{business_id}
+                                        │
+                       ┌────────────────┼─────────────────┐
+                       ▼                ▼                 ▼
+                  tool-calls    end-of-call-report   status-update
+                       │                │                 │
+                       │                │                 ▼
+                       │                │         missed-call SMS
+                       │                ▼
+                       │     OpenRouter summarize → calls row
+                       ▼
+              book_appointment ─► Cal.com booking ─► customer SMS + owner SMS
+                                                          │
+                                                          ▼
+                                              Inngest "appointment/booked"
+                                                          │
+                                                          ▼
+                                          schedule review request (end_at + 2h)
+```
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&project-name=nextjs-with-supabase&repository-name=nextjs-with-supabase&demo-title=nextjs-with-supabase&demo-description=This+starter+configures+Supabase+Auth+to+use+cookies%2C+making+the+user%27s+session+available+throughout+the+entire+Next.js+app+-+Client+Components%2C+Server+Components%2C+Route+Handlers%2C+Server+Actions+and+Middleware.&demo-url=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2F&external-id=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&demo-image=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2Fopengraph-image.png)
+Other entry points:
 
-The above will also clone the Starter kit to your GitHub, you can clone that locally and develop locally.
+- `/api/webhooks/lead/{business_id}` — web form lead → fires Inngest `lead/web-form-submitted` → outbound Vapi call
+- `/api/webhooks/twilio/sms/{business_id}` — inbound SMS persisted (signature-verified)
+- `/api/webhooks/stripe` — subscription lifecycle → DB
+- `/api/inngest` — Inngest function registry (cron + event handlers)
+- `/r/{token}` — tracked review redirect → marks clicked → Google review URL
 
-If you wish to just develop locally and not deploy to Vercel, [follow the steps below](#clone-and-run-locally).
+---
 
-## Clone and run locally
+## Repository layout
 
-1. You'll first need a Supabase project which can be made [via the Supabase dashboard](https://database.new)
+```
+app/
+  api/
+    inngest/route.ts                          # Inngest serve endpoint
+    webhooks/
+      vapi/[business_id]/route.ts             # voice events + tool calls
+      twilio/sms/[business_id]/route.ts       # inbound SMS
+      lead/[business_id]/route.ts             # signed web-form lead
+      stripe/route.ts                         # Stripe events
+  dashboard/                                  # auth-gated SPA
+    layout.tsx, page.tsx (Today)
+    calls/{page.tsx,[id]/page.tsx}
+    bookings/page.tsx
+    reviews/page.tsx
+    settings/{page.tsx,actions.ts}
+    billing/{page.tsx,actions.ts}
+  onboard/                                    # public form + thanks page
+  r/[token]/route.ts                          # tracked review redirect
+  account-pending/page.tsx                    # auth user not yet linked
 
-2. Create a Next.js app using the Supabase Starter template npx command
+lib/
+  db/{index.ts,schema.ts,queries.ts,migrations/}   # Drizzle
+  voice/{types.ts,prompt-template.ts,tools.ts,tool-handlers.ts,vapi.ts,deploy.ts}
+  telephony/twilio.ts                              # SMS send + client
+  booking/cal.ts                                   # Cal.com v2 client
+  ai/llm.ts                                        # call summarization (OpenRouter)
+  jobs/{client.ts,functions.ts}                    # Inngest
+  billing/stripe.ts                                # Stripe client
+  provisioning/{index.ts,twilio.ts}                # tenant orchestrator
+  env.ts                                           # Zod-validated env (lazy)
+  format.ts                                        # date / phone / duration helpers
 
-   ```bash
-   npx create-next-app --example with-supabase with-supabase-app
-   ```
+components/
+  dashboard/{sidebar.tsx,badges.tsx,settings-form.tsx}
+  onboarding/onboarding-form.tsx
+  ui/                                              # shadcn primitives
 
-   ```bash
-   yarn create next-app --example with-supabase with-supabase-app
-   ```
+scripts/
+  seed-test-tenant.ts                              # bun db:seed
+  provision-tenant.ts                              # bun provision <id>
+```
 
-   ```bash
-   pnpm create next-app --example with-supabase with-supabase-app
-   ```
+---
 
-3. Use `cd` to change into the app's directory
+## Local development
 
-   ```bash
-   cd with-supabase-app
-   ```
+### Prerequisites
 
-4. Rename `.env.example` to `.env.local` and update the following:
+- [Bun](https://bun.com) 1.3+
+- Supabase project (free tier works)
+- Optional but needed for full E2E: Vapi, Twilio, OpenRouter, Cal.com, Stripe, Inngest accounts
 
-  ```env
-  NEXT_PUBLIC_SUPABASE_URL=[INSERT SUPABASE PROJECT URL]
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=[INSERT SUPABASE PROJECT API PUBLISHABLE OR ANON KEY]
-  ```
-  > [!NOTE]
-  > This example uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, which refers to Supabase's new **publishable** key format.
-  > Both legacy **anon** keys and new **publishable** keys can be used with this variable name during the transition period. Supabase's dashboard may show `NEXT_PUBLIC_SUPABASE_ANON_KEY`; its value can be used in this example.
-  > See the [full announcement](https://github.com/orgs/supabase/discussions/29260) for more information.
+### 1. Install + env
 
-  Both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` can be found in [your Supabase project's API settings](https://supabase.com/dashboard/project/_?showConnect=true)
+```bash
+bun install
+cp .env.example .env.local
+```
 
-5. You can now run the Next.js local development server:
+Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `DATABASE_URL` (Supabase → Project Settings → Database → "Direct connection" string). Everything else is optional and can be filled in as you wire each integration.
 
-   ```bash
-   npm run dev
-   ```
+### 2. Migrate the database
 
-   The starter kit should now be running on [localhost:3000](http://localhost:3000/).
+```bash
+bun db:migrate
+```
 
-6. This template comes with the default shadcn/ui style initialized. If you instead want other ui.shadcn styles, delete `components.json` and [re-install shadcn/ui](https://ui.shadcn.com/docs/installation/next)
+This applies all migrations under `lib/db/migrations/`, including RLS policies on every table.
 
-> Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
+### 3. Seed a test tenant (optional)
 
-## Feedback and issues
+```bash
+bun db:seed
+```
 
-Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
+Inserts "Tenant Zero HVAC" with sample KB. Prints the `business_id` and webhook URLs.
 
-## More Supabase examples
+### 4. Run the dev server
 
-- [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)
-- [Cookie-based Auth and the Next.js 13 App Router (free course)](https://youtube.com/playlist?list=PL5S4mPUpp4OtMhpnp93EFSo42iQ40XjbF)
-- [Supabase Auth and the Next.js App Router](https://github.com/supabase/supabase/tree/master/examples/auth/nextjs)
+```bash
+bun dev
+```
+
+For Inngest functions to run locally, also start the Inngest dev server:
+
+```bash
+bunx inngest-cli@latest dev
+```
+
+It auto-discovers functions at `http://localhost:3000/api/inngest`.
+
+### 5. Tunnel for webhooks (when testing real voice/SMS/Stripe)
+
+Vapi, Twilio, and Stripe push webhooks. From a second terminal:
+
+```bash
+ngrok http 3000
+```
+
+Set `APP_URL=https://your-tunnel.ngrok.app` in `.env.local` and restart `bun dev`. Then point provider webhooks at the tunneled URL.
+
+### 6. Provision your test tenant
+
+Once Vapi + Twilio keys are set:
+
+```bash
+bun provision <business_id> --area-code 415
+```
+
+This buys a Twilio number, registers it with Vapi, deploys the assistant, optionally creates a Stripe customer, and links phone → assistant. Idempotent — safe to re-run.
+
+### 7. Link your auth user (white-glove step)
+
+V1 is white-glove, so the `owner_user_id` link is manual:
+
+```sql
+update businesses
+set owner_user_id = (select id from auth.users where email = '<your-email>')
+where id = '<business_id>';
+
+update businesses set status = 'live' where id = '<business_id>';
+```
+
+You can then sign in at `/auth/login` and land in `/dashboard`.
+
+---
+
+## Dev gotchas
+
+Things that bit me during the first end-to-end run. Read before debugging.
+
+### Supabase direct connection is IPv6-only on the free tier
+The "Direct connection" string at `db.<ref>.supabase.co:5432` won't connect from most home networks. Use the **Session pooler** string instead (looks like `postgres://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres`). Username is `postgres.<project_ref>`, not bare `postgres`. Works for both migrations and runtime; switch to the transaction pooler later only if you need it.
+
+### `NEXT_PUBLIC_*` env vars are baked into client JS at dev-server start
+If you change `.env.local` (Supabase URL, key, etc.) while `bun dev` is running, the browser still has the old (or undefined) values. Symptom: `supabase.auth.signUp()` does nothing, no network request, console silent. Fix: Ctrl-C `bun dev`, restart, hard-refresh browser.
+
+### Next.js 16 blocks cross-origin dev requests by default
+When you tunnel `localhost:3000` through ngrok, Next.js refuses to serve `_next/*` to the ngrok host, which means React bundles never load and forms submit as default HTML GETs. Fix: add the ngrok host to `allowedDevOrigins` in `next.config.ts`:
+```ts
+const nextConfig: NextConfig = {
+  allowedDevOrigins: ["<your-tunnel>.ngrok-free.app"],
+};
+```
+
+### ngrok free tier reassigns subdomain on every restart
+Each restart breaks three things at once: `allowedDevOrigins` in `next.config.ts`, `APP_URL` in `.env.local`, and the webhook URL baked into the Vapi assistant. After updating the first two, **re-run `bun provision <id>`** to redeploy the assistant with the new URL.
+
+To avoid the dance entirely, claim a static domain in the ngrok dashboard (free tier allows one) and start ngrok with `ngrok http --url=<your-stable>.ngrok-free.app 3000`. Then nothing ever changes.
+
+### Supabase auth blocks unknown redirect URLs
+The signup form's `emailRedirectTo` must be in Supabase's allowlist. Set both **Site URL** and **Redirect URLs** in Supabase → Authentication → URL Configuration to your ngrok URL (`https://<tunnel>.ngrok-free.app` and `https://<tunnel>.ngrok-free.app/**`). Update each time the ngrok URL changes (or use a static domain).
+
+### Vapi voices and model IDs change
+Vapi rotates their voice catalog and uses dated model IDs. If `bun provision` fails with `voice not supported` or `model.model must be one of...`, look at `lib/voice/deploy.ts` and swap to a current value:
+- Voices that work today: `Elliot`, `Kylie`, `Rohan`, `Hana`, `Lily`. Authoritative list: <https://docs.vapi.ai/providers/voice/vapi-voices>
+- Models need the full dated form: `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, etc. The error message lists every accepted value if you get it wrong.
+
+### Twilio area codes can be out of stock
+`bun provision <id> --area-code 415` may fail with "no local numbers available". Try a less-popular area code (510, 408, 650, 334) or drop `--area-code` entirely to fall back to any US local number.
+
+### Empty values in `.env.local` are not the same as unset
+`VAPI_API_KEY=` (empty string) is parsed as `""`, not `undefined`. The env loader at `lib/env.ts` cleans empty strings to `undefined` before validating so optional integration keys aren't rejected — keep this in mind if you add new env vars.
+
+### Provisioning script holds the DB open
+The `postgres` driver keeps its pool alive after the script completes, so scripts need explicit `process.exit(0)` on success. Both `seed-test-tenant.ts` and `provision-tenant.ts` do this. Any new long-running script should too, or it'll appear to hang.
+
+### Drizzle Kit is its own subprocess
+`drizzle-kit migrate` doesn't see env vars from bun's auto-loading because it spawns its own Node process for the config. Hence `drizzle.config.ts` calls `dotenv` directly. Don't remove that.
+
+### Twilio API succeeds but SMS never arrives → A2P 10DLC
+If `events` table shows no `sms_failed` rows but your phone never gets the message, look in **Twilio Console → Monitor → Logs → Messaging** — the message will be `undelivered`. US carriers filter unregistered traffic. Fix: register A2P 10DLC (one Brand + one Campaign for the whole platform). Voice and tool invocations work fine without it; only SMS delivery is blocked. Full registration steps in the Production Deployment → Twilio section.
+
+---
+
+## Production deployment
+
+### Supabase
+
+- Create project. Note the URL, publishable key, service role key, and direct DB URL.
+- `bun db:migrate` from a CI step or locally pointed at production.
+- RLS is enforced — verify with the cross-tenant test (Phase 5 todo).
+
+### Vercel
+
+- Import the repo. Vercel auto-detects Next.js.
+- Set every required env var from `.env.example`.
+- Important: set `APP_URL` to the deployed origin (e.g., `https://copper.vercel.app`).
+- The proxy at `proxy.ts` handles Supabase session refresh — no extra config.
+
+### Inngest Cloud
+
+- Create app, link to GitHub repo or use the deploy URL.
+- Set the serve URL to `https://<your-domain>/api/inngest`.
+- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`.
+- Add `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` to Vercel env.
+
+### Vapi
+
+- Create account, copy API key into `VAPI_API_KEY`.
+- Optionally set a webhook secret (`VAPI_WEBHOOK_SECRET`) — when set, the webhook handler enforces `x-vapi-secret`.
+- Assistants are created automatically by `provisionTenant`. No manual config required.
+
+### Twilio
+
+- Standard account, copy SID + auth token into `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`.
+- Set `TWILIO_DEFAULT_FROM_NUMBER` to the Twilio number you want SMS sent *from*. For Tenant Zero, that's the number `provisionTenant` bought. Once you have multiple tenants, you'd switch to per-tenant from-numbers in code (currently a global default).
+- `provisionTenant` buys numbers and configures their SMS webhook automatically. Vapi configures the voice webhook when the number is registered.
+
+#### A2P 10DLC registration (required for US SMS delivery)
+
+Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most SMS from your numbers. The Twilio API call returns 200, the message logs as `undelivered`, and nothing arrives on the recipient's phone. This is the most common cause of "my SMS isn't going through" once everything else looks right.
+
+**Important: A2P is operator-level, not tenant-level.** As the platform, you register **one Brand** (your business) and **one Campaign** (the use case), then attach every customer's Twilio number to that single Campaign. You do not register each customer separately.
+
+**Steps:**
+
+1. **Twilio Console → Messaging → Regulatory Compliance → A2P 10DLC**.
+2. **Register a Brand**:
+   - Use your real legal entity name and EIN (or SSN for sole prop).
+   - Standard Brand: ~$4 + $40 one-time vetting fee. Higher throughput.
+   - Sole Prop / low-volume Brand: ~$4, no vetting, lower throughput limits — fine for early stage.
+3. **Register a Campaign**:
+   - Use Case: **Customer Care** (best fit for the AI receptionist; also acceptable: "Account Notifications").
+   - Description: *"AI receptionist sends customers appointment confirmations, missed-call text-backs, and review requests on behalf of small home services businesses. Owners receive per-call summaries and emergency alerts."*
+   - Provide all four sample messages — they should match the actual templates the system sends:
+     - *"Hey, this is {Business} — sorry we missed you. Our AI assistant just called you back, or reply here and we'll text you."*
+     - *"Confirmed — {service} on {date}. {Business} will text before arrival. Reply with questions."*
+     - *"EMERGENCY @ {Business}: {summary}. Caller {phone}. Address: {address}."*
+     - *"Today: {N} calls, {M} booked ({X}%), {E} emergencies, {R} reviews requested."*
+   - Opt-in mechanism: explain that customers initiate by calling the business number (the missed-call text-back is a reply-to-an-implicit-opt-in pattern). For web-form leads, the opt-in is the form submission.
+   - Opt-out: standard `STOP` keyword (handled by Twilio automatically).
+4. **Attach Twilio numbers to the Campaign**: every number you provision (`+13345649614`, plus future tenants) needs to be linked. New numbers must be attached *after* purchase — `provisionTenant` doesn't do this automatically. Do it from the Twilio Console under Messaging → Senders → Phone Numbers.
+5. **Wait for approval**: typically 1-3 business days for the Brand, another 1-2 days for the Campaign.
+
+**Cost**: ~$2/mo per campaign + per-message carrier fees (fractions of a cent). Total carrier deposits vary.
+
+**While you wait**: voice flows, tool invocations, Cal.com bookings, dashboard updates — all work fine. Only actual SMS delivery is blocked. Use the `events` table to verify the system *would have* sent SMS if approval were complete.
+
+**Throughput**: a single Campaign covers all your customer numbers. Per-second message limits scale with Brand vetting tier (Sole Prop < Standard < Verified), not with number count. If you outgrow throughput, register a higher tier — not more campaigns.
+
+### Cal.com
+
+- Create account or use a self-hosted instance. Note the API key.
+- Each tenant needs an event type ID stored in `businesses.cal_com_event_type_id`. The provisioning script does not auto-create event types yet — set this manually until that flow is built.
+
+### Stripe
+
+- Create two prices in the Stripe dashboard:
+  - One-time setup fee → `STRIPE_PRICE_SETUP`
+  - Recurring monthly subscription → `STRIPE_PRICE_MRR`
+- Add a webhook endpoint pointing at `https://<your-domain>/api/webhooks/stripe`. Subscribe to: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
+- Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+
+### OpenRouter
+
+- API key into `OPENROUTER_API_KEY`. Used only for offline call summarization via the OpenAI-compatible endpoint. Vapi runs the in-call model itself with credentials configured directly in the Vapi dashboard.
+- Default model is `anthropic/claude-sonnet-4.5`. Override by editing `SUMMARY_MODEL` in `lib/ai/llm.ts` — any OpenRouter model id works (e.g. `openai/gpt-4o-mini`, `anthropic/claude-haiku-4.5`).
+
+---
+
+## What's built
+
+### Foundations
+- [x] Drizzle schema for 8 tables (businesses, knowledge_base, contacts, calls, messages, appointments, review_requests, events) with 12 enums
+- [x] RLS policies on every table, scoped via `businesses.owner_user_id = auth.uid()`
+- [x] Lazy Zod env loader — required keys validated on first access, integration keys optional
+- [x] Lazy Drizzle client — connects on first query, doesn't break `next build` without env
+
+### Inbound voice (Flow 1)
+- [x] Vapi webhook handler with optional secret verification
+- [x] `tool-calls` dispatched to handlers and returned synchronously
+- [x] `end-of-call-report` upserts `calls` row, persists transcript + recording URL
+- [x] LLM call summarization via OpenRouter (intent, outcome, isEmergency, ownerLine) via tool calling
+- [x] Per-call SMS digest line to owner at end-of-call
+- [x] Missed-call text-back fired on `status-update: in-progress` (idempotent per Vapi call ID)
+
+### AI tools (called mid-call)
+- [x] `get_available_slots` → Cal.com slot lookup
+- [x] `book_appointment` → real Cal.com booking + appointment row + customer SMS + owner SMS, fires `appointment/booked` Inngest event
+- [x] `lookup_existing_customer` → contacts table query
+- [x] `send_emergency_alert` → owner SMS
+- [x] `send_quote_followup` → fires `tool/quote-followup` Inngest event
+
+### Outbound voice (Flow 2 — speed-to-lead)
+- [x] Public web-form lead webhook with HMAC-SHA256 signature verification
+- [x] Inngest `outboundLeadCall` function fires Vapi outbound call within seconds
+- [x] Single-attempt only — multi-attempt retry (PRD Flow 2 step 5) deferred to V1.5
+
+### SMS
+- [x] Outbound SMS via Twilio with DB persistence in `messages`
+- [x] Inbound SMS webhook with HMAC-SHA1 signature verification
+- [x] Idempotent on `MessageSid`
+
+### Reviews (Flow 3)
+- [x] Inngest `reviewRequestFlow` triggered by `appointment/booked`
+- [x] Sleeps until `end_at + 2h`, sends tracked SMS
+- [x] 48h wait → nudge if unclicked → 48h wait → mark complete
+- [x] Tracked redirect at `/r/{token}` increments `clicked` and 302s to `business.googleReviewUrl`
+
+### Owner notifications
+- [x] Per-call summary SMS at end-of-call
+- [x] Daily digest SMS at 6 PM local time per tenant (timezone-aware via Postgres `AT TIME ZONE`)
+- [x] Emergency alert SMS
+
+### Dashboard
+- [x] Auth-gated layout with sidebar nav
+- [x] Today page (calls / booked / conversion / emergencies / reviews requested)
+- [x] Calls list + detail (transcript, recording playback, summary, linked appointment)
+- [x] Bookings list (upcoming appointments)
+- [x] Reviews list (pending / sent / clicked / completed)
+- [x] Settings page: business info, hours grid editor, KB JSON sections, voice config; save redeploys Vapi assistant
+- [x] Billing page: subscription status, Stripe checkout, Stripe customer portal
+
+### Onboarding
+- [x] Public form at `/onboard` capturing all PRD §7 fields
+- [x] Submission creates pending business + KB rows; redirects to `/onboard/thanks`
+- [x] Auth user link is manual (white-glove)
+
+### Provisioning
+- [x] `provisionTenant(businessId)` orchestrator — idempotent, safe to re-run
+- [x] Steps: buy Twilio number → register with Vapi → deploy assistant → create Stripe customer → link phone to assistant
+- [x] CLI: `bun provision <business_id> [--area-code 415]`
+- [x] Each step skips when its IDs are already present; failures bail with a clear error
+
+### Billing
+- [x] Stripe customer creation during provisioning
+- [x] Checkout session with setup fee (one-time) + MRR (recurring) line items
+- [x] Customer portal for self-service card / invoice management
+- [x] Webhook handles checkout completion, subscription lifecycle, invoice events
+
+### Schema migrations
+- [x] `0000_init.sql` — initial 8 tables + RLS
+- [x] `0001_add_vapi_phone_and_google_review.sql`
+- [x] `0002_add_stripe_fields.sql`
+
+---
+
+## What's deferred (Phase 5 + V1.5)
+
+- [ ] Sentry wiring in webhooks + actions
+- [ ] Cross-tenant RLS test (script that creates two tenants and verifies isolation)
+- [ ] Operator admin: link auth user to business, flip status, all from UI
+- [ ] Auto-create Cal.com event type during provisioning
+- [ ] "Ring owner cell first" voice routing (currently goes straight to Vapi)
+- [ ] Auto-attach newly-provisioned Twilio numbers to the platform's A2P 10DLC Campaign (currently a manual Twilio Console step per new tenant)
+- [ ] Auto magic-link send during onboarding submission
+- [ ] Multi-attempt outbound retry for speed-to-lead (PRD Flow 2 step 5)
+- [ ] Per-attempt cold-mark logic
+- [ ] Owner-friendly editors for services / FAQs (currently JSON textareas)
+- [ ] Tenant-zero polish pass
+
+---
+
+## End-to-end testing checklist
+
+Run through these in order. Assumes accounts are provisioned and `bun provision` has succeeded for one test tenant whose `owner_user_id` is linked to your Supabase auth user and whose `status` is `live`.
+
+### 1. Auth + dashboard shell
+- [ ] Visit `/` — landing page renders
+- [ ] Click **Sign in** → land on `/auth/login`
+- [ ] Sign in with linked email → redirected to `/dashboard`
+- [ ] Sidebar shows all 7 sections; business name appears in header
+
+### 2. Empty-state dashboard
+- [ ] **Today** page: shows zeros and "Quiet day so far" card
+- [ ] **Calls / Bookings / Reviews**: show empty-state messages, no errors
+
+### 3. Inbound voice
+- [ ] Call your tenant's Twilio number from a different phone
+- [ ] Vapi answers within 2 rings, plays the first message ("Hi! Thanks for calling …")
+- [ ] Within 30 s of pickup, the calling phone receives the missed-call text-back SMS
+- [ ] Hang up after a brief conversation
+- [ ] Within 30 s, owner phone receives a one-line SMS summary
+- [ ] **Calls** page shows the call; click it → transcript, recording playback, summary all render
+- [ ] `events` table shows `call.completed`, `missed_call_textback.sent`
+
+### 4. Booking flow (mid-call tool use)
+- [ ] Make a second call. Tell the AI: "I need an AC repair, can you check tomorrow morning?"
+- [ ] AI calls `get_available_slots` → reads back real slots from Cal.com
+- [ ] Pick one, confirm name + phone + address. AI calls `book_appointment`
+- [ ] AI confirms verbally; calling phone gets confirmation SMS
+- [ ] Owner phone gets booking alert SMS
+- [ ] Cal.com dashboard shows the new booking
+- [ ] **Bookings** page shows the upcoming appointment
+- [ ] Call detail page shows the linked appointment card
+
+### 5. Emergency
+- [ ] Make a call describing a "gas smell" or "no heat in winter"
+- [ ] AI calls `send_emergency_alert`; owner phone gets EMERGENCY SMS
+- [ ] Call detail in dashboard shows red `emergency` badge
+- [ ] `summary` text reflects the emergency
+
+### 6. Web form lead → outbound speed-to-lead
+- [ ] Submit a JSON POST to `/api/webhooks/lead/{business_id}` with `{ phone, name, service }` (and the HMAC signature header if `INTERNAL_WEBHOOK_SECRET` is set)
+- [ ] Within ~60 s, the lead phone rings; Vapi opens with "Hi, this is …"
+- [ ] After the call, transcript + summary land in **Calls** as direction = outbound
+- [ ] `events` table shows `lead.web_form.received` then `lead.outbound.call_created`
+
+### 7. Review request
+- [ ] Manually advance time or shorten the `step.sleepUntil` in `reviewRequestFlow` to test
+- [ ] Customer phone receives the review SMS with `https://<domain>/r/<token>`
+- [ ] **Reviews** page shows the row in `sent` state with timestamp
+- [ ] Open the link from the customer's phone → redirected to `business.googleReviewUrl`
+- [ ] **Reviews** page now shows `clicked` state with `clickedAt` timestamp
+
+### 8. Daily digest
+- [ ] Wait until 6 PM local for the tenant's timezone (or trigger the cron manually in the Inngest dev UI)
+- [ ] Owner phone receives "Today: N calls, M booked (X%), …"
+- [ ] Digest link points at `/dashboard`
+
+### 9. Settings save → assistant redeploy
+- [ ] Open `/dashboard/settings`
+- [ ] Change brand voice notes; click **Save settings**
+- [ ] Form shows "Vapi assistant updated (asst_…)"
+- [ ] Make a new call — first message and tone reflect the new prompt
+
+### 10. Stripe
+- [ ] Open `/dashboard/billing`
+- [ ] Click **Activate billing** → redirected to Stripe Checkout
+- [ ] Complete payment with test card `4242 4242 4242 4242`
+- [ ] Redirected back to `/dashboard/billing?status=success`
+- [ ] Stripe webhook fires; `setup_fee_paid_at` populates within seconds
+- [ ] Refresh — subscription status shows `active`
+- [ ] Click **Manage billing** → Stripe customer portal opens
+
+### 11. Inbound SMS
+- [ ] Reply to the missed-call text-back SMS from the calling phone
+- [ ] `messages` table gets a new `direction: inbound` row
+- [ ] (No automated reply yet — verifying persistence only)
+
+### 12. RLS isolation
+- [ ] Create a second auth user + second business in DB
+- [ ] Sign in as user A, note URLs/UUIDs
+- [ ] Sign in as user B → `/dashboard` only shows user B's data
+- [ ] Try direct URL `/dashboard/calls/<user-A-call-id>` → 404 (RLS denies, query returns null)
+
+### 13. Onboarding form
+- [ ] Sign out, visit `/onboard`
+- [ ] Fill the form (use sample JSON for KB sections)
+- [ ] Submit → redirected to `/onboard/thanks`
+- [ ] DB has new `businesses` row in `pending` status + linked `knowledge_base` row
+- [ ] `events` table shows `onboarding.submitted`
+
+### 14. Provisioning idempotency
+- [ ] Run `bun provision <business_id>` for a tenant that's already provisioned
+- [ ] Every step shows `·` (skipped) except `vapi-assistant` which always runs (`updated`)
+- [ ] No duplicate Twilio numbers, Vapi phone numbers, Stripe customers, or assistants created
+
+---
+
+## Operator runbook
+
+### Onboard a new tenant (white-glove)
+
+1. Customer fills `/onboard` and submits.
+2. Inspect the row: `select * from businesses where status = 'pending' order by created_at desc limit 1;`
+3. Tweak KB JSON if needed.
+4. Provision: `bun provision <business_id> --area-code <area>`
+5. Manually create the auth user in Supabase (or invite by email).
+6. `update businesses set owner_user_id = (select id from auth.users where email = '...'), status = 'live' where id = '...';`
+7. Send the customer a magic link to log in.
+8. Walk them through the dashboard on a 30 min Zoom.
+
+### Diagnose a missing call
+
+- Check `events` table filtered by `business_id` and recent `created_at`. Look for `vapi.status-update.*`, `call.completed`, errors.
+- Vercel logs for the Vapi webhook route — request bodies are visible.
+- Vapi dashboard for the assistant's call log.
+
+### Refresh webhook URLs after a domain change
+
+- Update `APP_URL` in Vercel env.
+- For each tenant: `bun provision <business_id>` re-deploys the assistant with the new server URL. SMS webhook URLs need a one-off re-set:
+
+```ts
+// in a one-off script
+await refreshNumberWebhooks({ businessId, twilioSid: business.twilioSubaccountSid });
+```
+
+### Cancel a tenant
+
+- Cancel their Stripe subscription (customer portal or Stripe dashboard).
+- `update businesses set status = 'paused' where id = '...';`
+- Optionally release the Twilio number and delete the Vapi assistant.
+
+---
+
+## Open questions / decisions to revisit
+
+- **Voice provider**: Vapi for V1, but evaluate Retell if voice quality complaints come in.
+- **Multi-attempt retries** for outbound speed-to-lead — needed once we see real lead-form traffic.
+- **Subaccount-per-tenant in Twilio** — defer until we hit billing or isolation needs.
+- **Self-service onboarding** — V1 is white-glove. Architecture supports flipping the switch.
+
+See [`flagship-v1-prd.md`](./flagship-v1-prd.md) §13 for the full open-decision list.
