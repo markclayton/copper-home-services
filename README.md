@@ -242,6 +242,27 @@ The `postgres` driver keeps its pool alive after the script completes, so script
 ### Twilio API succeeds but SMS never arrives → A2P 10DLC
 If `events` table shows no `sms_failed` rows but your phone never gets the message, look in **Twilio Console → Monitor → Logs → Messaging** — the message will be `undelivered`. US carriers filter unregistered traffic. Fix: register A2P 10DLC (one Brand + one Campaign for the whole platform). Voice and tool invocations work fine without it; only SMS delivery is blocked. Full registration steps in the Production Deployment → Twilio section.
 
+### Demo provisioning mode (testing onboarding without burning real numbers)
+For dev or staging, you can let multiple test signups share a single Twilio + Vapi phone number instead of `provisionTenant` buying a fresh one every time (which would cost ~$1.15/mo per fake signup and hit Vapi's number quota fast).
+
+Set both:
+```
+DEMO_TWILIO_NUMBER=+13345649614
+DEMO_VAPI_PHONE_NUMBER_ID=9bf6f6eb-5602-4529-85c6-3533b8423f1a
+```
+(Use Tenant Zero's number + Vapi phone-number ID, or any pair you've already provisioned for testing.)
+
+When both are set, `provisionTenant`:
+- **Uses the demo number** for steps `twilio-number` and `vapi-phone-number` instead of buying / registering new
+- **Skips `a2p-attach`** (the demo number is already attached, or doesn't need it for testing)
+- **Still creates a unique Vapi assistant** per tenant — brand voice, prompt, and KB are real
+- **Still creates a unique Cal.com event type** per tenant
+- **Re-links the demo number to the latest signup's assistant** in `link-phone-to-assistant` (last-write-wins on the inbound voice route)
+
+**Trade-off:** only one tenant at a time can have their AI answer the shared number. If two friends sign up back-to-back, the second signup overwrites the first's voice routing. Their dashboards still work independently; just calling in resolves to whoever signed up most recently.
+
+**Leave both empty in production** — `provisionTenant` falls back to buying real numbers when demo mode is off. The variables are also safe to leave set on a staging Vercel deployment if you want every signup there to share the same number forever.
+
 ---
 
 ## Production deployment
@@ -435,10 +456,17 @@ This validates that an unauthenticated visitor can go from `/onboard` to a worki
 **Prerequisites:**
 - All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Cal.com + Stripe + OpenRouter + Inngest.
 - `STRIPE_PRICE_MRR` set to a recurring price ($500/mo). `STRIPE_PRICE_SETUP` left empty (self-serve has no setup fee).
-- `TWILIO_MESSAGING_SERVICE_SID` set so new numbers auto-attach to your A2P 10DLC Campaign.
+- `TWILIO_MESSAGING_SERVICE_SID` set so new numbers auto-attach to your A2P 10DLC Campaign. (Skip if you're using demo mode below.)
 - Stripe webhook endpoint configured to point at `https://<your-tunnel>/api/webhooks/stripe`.
 - Cal.com account is connected to a Google Calendar so booking has real availability.
 - Three terminals running: `bun dev`, `bun tunnel`, `bunx inngest-cli@latest dev`.
+
+**For repeated testing, enable demo mode** so each signup reuses Tenant Zero's number instead of buying a fresh one:
+```
+DEMO_TWILIO_NUMBER=+13345649614
+DEMO_VAPI_PHONE_NUMBER_ID=9bf6f6eb-5602-4529-85c6-3533b8423f1a
+```
+See **Dev gotchas → Demo provisioning mode** for the trade-offs.
 
 **Steps:**
 

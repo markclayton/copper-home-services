@@ -25,6 +25,13 @@ const envSchema = z.object({
   TWILIO_DEFAULT_FROM_NUMBER: z.string().min(1).optional(),
   TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
 
+  // Demo mode: when both are set, provisionTenant reuses these for every new
+  // tenant instead of buying a fresh Twilio number + registering with Vapi.
+  // Each tenant still gets a unique Vapi assistant + Cal.com event type, but
+  // the phone number is shared (last signup's assistant wins on inbound).
+  DEMO_TWILIO_NUMBER: z.string().min(1).optional(),
+  DEMO_VAPI_PHONE_NUMBER_ID: z.string().min(1).optional(),
+
   OPENROUTER_API_KEY: z.string().min(1).optional(),
 
   CAL_COM_API_KEY: z.string().min(1).optional(),

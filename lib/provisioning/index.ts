@@ -63,12 +63,28 @@ export async function provisionTenant(
   let vapiAssistantId = businessRow.vapiAssistantId;
   let calComEventTypeId = businessRow.calComEventTypeId;
 
-  // Step 1: buy Twilio number
+  const demoMode = !!(
+    env.DEMO_TWILIO_NUMBER && env.DEMO_VAPI_PHONE_NUMBER_ID
+  );
+
+  // Step 1: buy Twilio number (or reuse demo number)
   if (twilioNumber) {
     steps.push({
       name: "twilio-number",
       status: "skipped",
       detail: `already provisioned: ${twilioNumber}`,
+    });
+  } else if (demoMode) {
+    twilioNumber = env.DEMO_TWILIO_NUMBER!;
+    twilioPhoneSid = null; // no real SID — A2P attach + webhook refresh skip
+    await db
+      .update(businesses)
+      .set({ twilioNumber, updatedAt: new Date() })
+      .where(eq(businesses.id, businessId));
+    steps.push({
+      name: "twilio-number",
+      status: "ok",
+      detail: `demo: ${twilioNumber}`,
     });
   } else {
     try {
@@ -104,7 +120,13 @@ export async function provisionTenant(
   // Step 1.5: attach number to A2P 10DLC Messaging Service so SMS clears
   // carrier filtering. Twilio API returns 409 if already attached, which
   // attachToMessagingService swallows.
-  if (twilioNumber && env.TWILIO_MESSAGING_SERVICE_SID) {
+  if (demoMode) {
+    steps.push({
+      name: "a2p-attach",
+      status: "skipped",
+      detail: "demo mode",
+    });
+  } else if (twilioNumber && env.TWILIO_MESSAGING_SERVICE_SID) {
     if (!twilioPhoneSid) {
       steps.push({
         name: "a2p-attach",
@@ -134,12 +156,23 @@ export async function provisionTenant(
     });
   }
 
-  // Step 2: register with Vapi
+  // Step 2: register with Vapi (or reuse demo phone number)
   if (vapiPhoneNumberId) {
     steps.push({
       name: "vapi-phone-number",
       status: "skipped",
       detail: vapiPhoneNumberId,
+    });
+  } else if (demoMode) {
+    vapiPhoneNumberId = env.DEMO_VAPI_PHONE_NUMBER_ID!;
+    await db
+      .update(businesses)
+      .set({ vapiPhoneNumberId, updatedAt: new Date() })
+      .where(eq(businesses.id, businessId));
+    steps.push({
+      name: "vapi-phone-number",
+      status: "ok",
+      detail: `demo: ${vapiPhoneNumberId}`,
     });
   } else {
     try {
