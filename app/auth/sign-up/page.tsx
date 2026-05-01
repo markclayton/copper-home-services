@@ -1,11 +1,8 @@
-import { SignUpForm } from "@/components/sign-up-form";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
-      <div className="w-full max-w-sm">
-        <SignUpForm />
-      </div>
-    </div>
-  );
+  // Self-serve: signups go through /onboard (form → Stripe → magic link).
+  // The legacy /auth/sign-up password form bypassed business creation entirely
+  // and stranded the user at /account-pending.
+  redirect("/onboard");
 }
