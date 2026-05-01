@@ -1,9 +1,12 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { businesses, knowledgeBase, events } from "@/lib/db/schema";
+import { createSelfServeCheckout } from "@/lib/billing/stripe";
+import { draftKbFromUrl, type KbDraft } from "@/lib/onboarding/draft-kb";
 
 const hoursDay = z.object({
   open: z.string(),
@@ -48,6 +51,34 @@ export type SubmitOnboardingState = {
   ok: boolean;
   error?: string;
 };
+
+export type DraftKbState = {
+  ok: boolean;
+  draft?: KbDraft;
+  error?: string;
+};
+
+const urlSchema = z.string().url();
+
+export async function draftKbAction(
+  _prev: DraftKbState,
+  form: FormData,
+): Promise<DraftKbState> {
+  const url = String(form.get("websiteUrl") ?? "");
+  const parsed = urlSchema.safeParse(url);
+  if (!parsed.success) {
+    return { ok: false, error: "Enter a valid URL like https://example.com" };
+  }
+  try {
+    const draft = await draftKbFromUrl(parsed.data);
+    return { ok: true, draft };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
 
 function parseJson<T>(raw: string, label: string): T {
   if (!raw.trim()) return {} as T;
@@ -137,5 +168,26 @@ export async function submitOnboarding(
     },
   });
 
-  redirect("/onboard/thanks");
+  // Create Stripe customer + Checkout session and redirect.
+  let checkoutUrl: string;
+  try {
+    const { url, customerId } = await createSelfServeCheckout({
+      businessId: business.id,
+      ownerEmail: v.ownerEmail,
+      ownerName: v.ownerName,
+      ownerPhone: v.ownerPhone,
+    });
+    await db
+      .update(businesses)
+      .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+      .where(eq(businesses.id, business.id));
+    checkoutUrl = url;
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Stripe is not yet configured: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  redirect(checkoutUrl);
 }

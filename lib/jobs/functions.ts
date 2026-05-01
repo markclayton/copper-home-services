@@ -18,7 +18,9 @@ import {
   type AppointmentBookedData,
   type LeadFormData,
   type QuoteFollowupData,
+  type TenantProvisionNeededData,
 } from "./client";
+import { provisionTenant } from "@/lib/provisioning";
 
 /**
  * Speed-to-lead: a website form POST → outbound AI call within ~60 s.
@@ -327,6 +329,56 @@ export const dailyDigest = inngest.createFunction(
     }
 
     return { tenantsNotified: targets.length };
+  },
+);
+
+/**
+ * Self-serve tenant activation: runs after Stripe checkout completes for a
+ * new tenant. Calls provisionTenant (idempotent), then flips status to live.
+ * The setup wait page polls business.status and redirects when it changes.
+ */
+export const tenantProvisioning = inngest.createFunction(
+  {
+    id: "tenant-provisioning",
+    triggers: [{ event: "tenant/provision-needed" }],
+    retries: 3,
+  },
+  async ({ event, step }) => {
+    const { businessId } = event.data as TenantProvisionNeededData;
+
+    const result = await step.run("provision-tenant", () =>
+      provisionTenant(businessId),
+    );
+
+    if (!result.ok) {
+      await step.run("log-failure", async () => {
+        await db.insert(events).values({
+          businessId,
+          type: "tenant.provision.failed",
+          payload: { steps: result.steps },
+        });
+      });
+      throw new NonRetriableError(
+        `Provisioning failed: ${result.steps
+          .filter((s) => s.status === "failed")
+          .map((s) => `${s.name}: ${s.detail}`)
+          .join("; ")}`,
+      );
+    }
+
+    await step.run("mark-live", async () => {
+      await db
+        .update(businesses)
+        .set({ status: "live", updatedAt: new Date() })
+        .where(eq(businesses.id, businessId));
+      await db.insert(events).values({
+        businessId,
+        type: "tenant.live",
+        payload: { steps: result.steps },
+      });
+    });
+
+    return { ok: true, businessId };
   },
 );
 

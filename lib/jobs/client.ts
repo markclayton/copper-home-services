@@ -29,6 +29,10 @@ export type QuoteFollowupData = {
   vapiCallId?: string;
 };
 
+export type TenantProvisionNeededData = {
+  businessId: string;
+};
+
 export const inngest = new Inngest({
   id: "copper-home-services",
 });

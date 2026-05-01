@@ -276,6 +276,7 @@ If `events` table shows no `sms_failed` rows but your phone never gets the messa
 
 - Standard account, copy SID + auth token into `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN`.
 - Set `TWILIO_DEFAULT_FROM_NUMBER` to the Twilio number you want SMS sent *from*. For Tenant Zero, that's the number `provisionTenant` bought. Once you have multiple tenants, you'd switch to per-tenant from-numbers in code (currently a global default).
+- Set `TWILIO_MESSAGING_SERVICE_SID` once your A2P 10DLC Brand + Campaign are approved. `provisionTenant` will auto-attach every newly-bought number to this service so SMS clears carrier filtering. Find it at Twilio Console → Messaging → Services → your service → Service SID (`MGxxxx`).
 - `provisionTenant` buys numbers and configures their SMS webhook automatically. Vapi configures the voice webhook when the number is registered.
 
 #### A2P 10DLC registration (required for US SMS delivery)
@@ -383,20 +384,23 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - [x] Settings page: business info, hours grid editor, KB JSON sections, voice config; save redeploys Vapi assistant
 - [x] Billing page: subscription status, Stripe checkout, Stripe customer portal
 
-### Onboarding
+### Onboarding (self-serve)
 - [x] Public form at `/onboard` capturing all PRD §7 fields
-- [x] Submission creates pending business + KB rows; redirects to `/onboard/thanks`
-- [x] Auth user link is manual (white-glove)
+- [x] **AI-drafted KB from website URL** — owner pastes URL → server fetches → OpenRouter returns structured services / FAQs / brand voice → form pre-fills
+- [x] Submission creates pending business + KB rows, then creates Stripe customer + Checkout session, redirects to Stripe
+- [x] `/onboard/setup/[id]` wait page with client-side polling, redirects to `/dashboard` when status flips to `live`
+- [x] Stripe webhook (`flow: "new_tenant"`) creates Supabase auth user via `inviteUserByEmail` (magic link), links `owner_user_id`, fires Inngest `tenant/provision-needed`
+- [x] No human required — card swipe to working AI in ~30-60s
 
 ### Provisioning
 - [x] `provisionTenant(businessId)` orchestrator — idempotent, safe to re-run
-- [x] Steps: buy Twilio number → register with Vapi → deploy assistant → create Stripe customer → link phone to assistant
-- [x] CLI: `bun provision <business_id> [--area-code 415]`
-- [x] Each step skips when its IDs are already present; failures bail with a clear error
+- [x] 7 steps, each env-gated and soft-failing: `twilio-number` → `a2p-attach` → `vapi-phone-number` → `cal-event-type` → `vapi-assistant` → `stripe-customer` → `link-phone-to-assistant`
+- [x] CLI: `bun provision <business_id> [--area-code 415]` (still useful for re-deploying after `APP_URL` changes or manual repair)
+- [x] Inngest function `tenantProvisioning` runs the orchestrator on payment success and flips `status` to `live`
 
 ### Billing
-- [x] Stripe customer creation during provisioning
-- [x] Checkout session with setup fee (one-time) + MRR (recurring) line items
+- [x] Self-serve Checkout: `createSelfServeCheckout` (subscription only, $500/mo, no setup fee)
+- [x] Existing-tenant activation Checkout: `createCheckoutSession` (optional setup fee + MRR, used from `/dashboard/billing`)
 - [x] Customer portal for self-service card / invoice management
 - [x] Webhook handles checkout completion, subscription lifecycle, invoice events
 
@@ -411,21 +415,56 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 
 - [ ] Sentry wiring in webhooks + actions
 - [ ] Cross-tenant RLS test (script that creates two tenants and verifies isolation)
-- [ ] Operator admin: link auth user to business, flip status, all from UI
-- [ ] Auto-create Cal.com event type during provisioning
 - [ ] "Ring owner cell first" voice routing (currently goes straight to Vapi)
-- [ ] Auto-attach newly-provisioned Twilio numbers to the platform's A2P 10DLC Campaign (currently a manual Twilio Console step per new tenant)
-- [ ] Auto magic-link send during onboarding submission
 - [ ] Multi-attempt outbound retry for speed-to-lead (PRD Flow 2 step 5)
 - [ ] Per-attempt cold-mark logic
 - [ ] Owner-friendly editors for services / FAQs (currently JSON textareas)
 - [ ] Tenant-zero polish pass
+- [ ] Optional white-glove tier (`/book-setup` page with Calendly + one-time setup fee). Revisit after first ~10 self-serve customers.
 
 ---
 
 ## End-to-end testing checklist
 
-Run through these in order. Assumes accounts are provisioned and `bun provision` has succeeded for one test tenant whose `owner_user_id` is linked to your Supabase auth user and whose `status` is `live`.
+The first section is the **self-serve smoke test** — the primary flow new customers will hit at launch. Run that one whenever the onboarding/checkout/provisioning code changes. The rest of the checklist contains per-feature tests against an already-provisioned tenant.
+
+### 0. Self-serve onboarding smoke test (the launch flow)
+
+This validates that an unauthenticated visitor can go from `/onboard` to a working AI receptionist without any human intervention.
+
+**Prerequisites:**
+- All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Cal.com + Stripe + OpenRouter + Inngest.
+- `STRIPE_PRICE_MRR` set to a recurring price ($500/mo). `STRIPE_PRICE_SETUP` left empty (self-serve has no setup fee).
+- `TWILIO_MESSAGING_SERVICE_SID` set so new numbers auto-attach to your A2P 10DLC Campaign.
+- Stripe webhook endpoint configured to point at `https://<your-tunnel>/api/webhooks/stripe`.
+- Cal.com account is connected to a Google Calendar so booking has real availability.
+- Three terminals running: `bun dev`, `bun tunnel`, `bunx inngest-cli@latest dev`.
+
+**Steps:**
+
+1. Open an **incognito window** (so you're not signed in as the operator). Visit `https://<your-tunnel>.ngrok-free.dev/onboard`.
+2. **Test the AI-KB drafter**: paste a real HVAC business URL, click **Draft from URL**. Within a few seconds, services + FAQs + brand voice notes should populate the form. Edit if needed.
+3. Fill the rest of the form: business name, owner name, owner email (use a real email you can check), owner cell phone (use a real number Twilio can text), timezone, hours, ZIPs.
+4. Click **Submit & pay** → redirected to Stripe Checkout.
+5. Pay with the test card `4242 4242 4242 4242`, any future expiration, any CVC, any zip.
+6. Land on `/onboard/setup/<id>` — the wait page shows "Provisioning…" with a pulsing dot.
+7. **Watch the Inngest dev UI** at `localhost:8288`. You should see `tenant-provisioning` start; its steps execute in order: `provision-tenant` (which itself runs all 7 sub-steps) → `mark-live`.
+8. Within ~30-60 seconds, the wait page flips to "You're live."
+9. Check the email inbox you used. Supabase sent an invitation email with a magic link.
+10. Click the magic link → land in `/dashboard` for the new tenant. The Today page should show zeros + the new business name in the header.
+11. **Verify the system is wired** by calling the new Twilio number you can find via `select twilio_number from businesses order by created_at desc limit 1`. The AI should pick up with the brand voice you set.
+12. Have a brief conversation, request to book an appointment. Cal.com booking should succeed (auto-created event type) and SMS should deliver (A2P-attached number).
+
+**Diagnostic helpers if anything breaks:**
+
+- `events` table for the new business id — every step logs (`onboarding.submitted`, `stripe.checkout.completed`, `tenant.invited`, `tenant.live`, individual `provision.*.failed` if any step blew up).
+- Inngest dev UI shows step-level errors with full payloads.
+- Stripe Dashboard → Developers → Webhooks → your endpoint → Logs shows webhook delivery.
+- Your `bun dev` terminal logs every webhook hit.
+
+If any step fails, the rest of the testing checklist below tests individual features against a tenant that's already provisioned (manually or self-serve).
+
+---
 
 ### 1. Auth + dashboard shell
 - [ ] Visit `/` — landing page renders
@@ -522,16 +561,34 @@ Run through these in order. Assumes accounts are provisioned and `bun provision`
 
 ## Operator runbook
 
-### Onboard a new tenant (white-glove)
+### Diagnose a stuck self-serve onboarding
 
-1. Customer fills `/onboard` and submits.
-2. Inspect the row: `select * from businesses where status = 'pending' order by created_at desc limit 1;`
-3. Tweak KB JSON if needed.
-4. Provision: `bun provision <business_id> --area-code <area>`
-5. Manually create the auth user in Supabase (or invite by email).
-6. `update businesses set owner_user_id = (select id from auth.users where email = '...'), status = 'live' where id = '...';`
-7. Send the customer a magic link to log in.
-8. Walk them through the dashboard on a 30 min Zoom.
+The self-serve flow (form → Stripe → webhook → Inngest → live) should complete in under a minute. If a customer reports they're stuck on the "Provisioning…" wait page, walk through these in order:
+
+1. **Did Stripe Checkout complete?** Stripe Dashboard → Payments → find their session. Status should be `complete`.
+2. **Did the Stripe webhook fire?** Stripe Dashboard → Developers → Webhooks → click the endpoint → Logs. Look for `checkout.session.completed` for the right session id with status 200.
+3. **Did the auth user get created?** Check `events` for `tenant.invited` or `tenant.invite.failed`. The latter's `payload.message` says why (most commonly: email already in use from a prior abandoned attempt — manually delete from Supabase Auth and re-fire the webhook from Stripe Dashboard).
+4. **Did Inngest run `tenant-provisioning`?** Inngest dashboard (or local dev UI) → Functions → tenant-provisioning. The run will show step-by-step results. A failure throws `NonRetriableError` with the failed step name.
+5. **If a specific provisioning step failed**, look in `events` for `provision.<step>.failed` with the underlying error.
+
+Most-common failure modes and fixes:
+- `twilio-number` failed with "no local numbers in area code" → the customer didn't specify an area code or it's out of stock. Manually run `bun provision <id> --area-code <other>` after the customer-supplied one fails.
+- `cal-event-type` failed → Cal.com API key invalid or hit rate limit. Re-run `bun provision <id>`.
+- `a2p-attach` failed → Messaging Service SID wrong or number ineligible. Skip via Twilio Console manual attach, then re-run provision.
+- `vapi-assistant` failed → usually means a model or voice ID Vapi rotated out. Edit `lib/voice/deploy.ts` and re-run provision.
+
+### Manually re-fire provisioning for a stuck tenant
+
+```
+bun provision <business_id>
+```
+Idempotent. Skips every step that's already done; re-tries failed steps.
+
+If the customer's auth user got created but `status` is still `pending`, fire a manual Inngest event from the dashboard or just run the script and then:
+
+```sql
+update businesses set status = 'live' where id = '<business_id>';
+```
 
 ### Diagnose a missing call
 

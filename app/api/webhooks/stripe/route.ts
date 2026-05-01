@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { businesses, events } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { getStripe } from "@/lib/billing/stripe";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { inngest } from "@/lib/jobs/client";
 
 export async function POST(req: NextRequest) {
   const secret = env.STRIPE_WEBHOOK_SECRET;
@@ -86,10 +88,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     typeof session.subscription === "string"
       ? session.subscription
       : session.subscription?.id ?? null;
+  const customerId =
+    typeof session.customer === "string"
+      ? session.customer
+      : session.customer?.id ?? null;
+  const flow = session.metadata?.flow as string | undefined;
 
   await db
     .update(businesses)
     .set({
+      stripeCustomerId: customerId,
       stripeSubscriptionId: subscriptionId,
       setupFeePaidAt: new Date(),
       updatedAt: new Date(),
@@ -99,7 +107,58 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   await db.insert(events).values({
     businessId,
     type: "stripe.checkout.completed",
-    payload: { sessionId: session.id, subscriptionId },
+    payload: { sessionId: session.id, subscriptionId, flow },
+  });
+
+  if (flow === "new_tenant") {
+    await activateNewTenant(businessId);
+  }
+}
+
+/**
+ * Self-serve activation: invite the owner via magic link, link the auth user
+ * to the business, and trigger provisioning.
+ */
+async function activateNewTenant(businessId: string) {
+  const [business] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.id, businessId))
+    .limit(1);
+  if (!business) return;
+
+  // Skip if already linked (idempotent on retried webhooks).
+  if (!business.ownerUserId) {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.auth.admin.inviteUserByEmail(
+      business.ownerEmail,
+      { redirectTo: `${env.APP_URL}/dashboard` },
+    );
+
+    if (error || !data?.user) {
+      await db.insert(events).values({
+        businessId,
+        type: "tenant.invite.failed",
+        payload: { message: error?.message ?? "no user returned" },
+      });
+      return;
+    }
+
+    await db
+      .update(businesses)
+      .set({ ownerUserId: data.user.id, updatedAt: new Date() })
+      .where(eq(businesses.id, businessId));
+
+    await db.insert(events).values({
+      businessId,
+      type: "tenant.invited",
+      payload: { userId: data.user.id, email: business.ownerEmail },
+    });
+  }
+
+  await inngest.send({
+    name: "tenant/provision-needed",
+    data: { businessId },
   });
 }
 

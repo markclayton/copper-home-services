@@ -5,6 +5,7 @@ import {
   outboundLeadCall,
   quoteFollowupReminder,
   reviewRequestFlow,
+  tenantProvisioning,
 } from "@/lib/jobs/functions";
 
 export const { GET, POST, PUT } = serve({
@@ -14,5 +15,6 @@ export const { GET, POST, PUT } = serve({
     reviewRequestFlow,
     dailyDigest,
     quoteFollowupReminder,
+    tenantProvisioning,
   ],
 });

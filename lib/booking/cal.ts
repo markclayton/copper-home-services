@@ -124,3 +124,40 @@ export async function createBooking(args: CreateBookingArgs) {
 
   return res.data;
 }
+
+type CreateEventTypeResponse = {
+  status: string;
+  data: {
+    id: number;
+    title: string;
+    slug: string;
+    lengthInMinutes: number;
+  };
+};
+
+export type CreateEventTypeArgs = {
+  title: string;
+  slug: string;
+  lengthInMinutes?: number;
+  description?: string;
+};
+
+/**
+ * Create a Cal.com event type for a tenant. Used during provisioning so that
+ * book_appointment has an event type to write to without manual setup.
+ */
+export async function createEventType(args: CreateEventTypeArgs) {
+  const res = await calFetch<CreateEventTypeResponse>("/event-types", {
+    method: "POST",
+    apiVersion: "2024-06-14",
+    body: {
+      title: args.title,
+      slug: args.slug,
+      lengthInMinutes: args.lengthInMinutes ?? 60,
+      description:
+        args.description ??
+        "Service visit booked through the AI receptionist.",
+    },
+  });
+  return res.data;
+}

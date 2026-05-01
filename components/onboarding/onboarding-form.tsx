@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,9 +13,13 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  draftKbAction,
   submitOnboarding,
+  type DraftKbState,
   type SubmitOnboardingState,
 } from "@/app/onboard/actions";
+
+const DRAFT_INITIAL: DraftKbState = { ok: false };
 
 const INITIAL: SubmitOnboardingState = { ok: false };
 
@@ -63,15 +67,85 @@ const SAMPLE_FAQS = JSON.stringify(
 
 export function OnboardingForm() {
   const [state, formAction, pending] = useActionState(submitOnboarding, INITIAL);
+  const [draftState, draftFormAction, drafting] = useActionState(
+    draftKbAction,
+    DRAFT_INITIAL,
+  );
   const [hours, setHours] = useState<Hours>(DEFAULT_HOURS);
+  const [services, setServices] = useState<string>(SAMPLE_SERVICES);
+  const [faqs, setFaqs] = useState<string>(SAMPLE_FAQS);
+  const [pricing, setPricing] = useState<string>("{}");
+  const [policies, setPolicies] = useState<string>("{}");
+  const [emergencyCriteria, setEmergencyCriteria] = useState<string>("");
+  const [brandVoiceNotes, setBrandVoiceNotes] = useState<string>("");
+  const lastDraftRef = useRef<DraftKbState | null>(null);
+
+  if (draftState.ok && draftState.draft && draftState !== lastDraftRef.current) {
+    lastDraftRef.current = draftState;
+    const d = draftState.draft;
+    setServices(JSON.stringify(d.services, null, 2));
+    setFaqs(JSON.stringify(d.faqs, null, 2));
+    if (d.pricing && Object.keys(d.pricing).length > 0) {
+      setPricing(JSON.stringify(d.pricing, null, 2));
+    }
+    if (d.policies && Object.keys(d.policies).length > 0) {
+      setPolicies(JSON.stringify(d.policies, null, 2));
+    }
+    if (d.emergencyCriteria) setEmergencyCriteria(d.emergencyCriteria);
+    if (d.brandVoiceNotes) setBrandVoiceNotes(d.brandVoiceNotes);
+  }
 
   function updateDay(day: DayKey, patch: Partial<HoursDay>) {
     setHours((prev) => ({ ...prev, [day]: { ...prev[day], ...patch } }));
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-6">
-      <input type="hidden" name="hours" value={JSON.stringify(hours)} />
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Draft from your website (optional)</CardTitle>
+          <CardDescription>
+            Paste your website URL — we&apos;ll pre-fill services, FAQs, and
+            voice notes from your site so you can review instead of write from
+            scratch.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={draftFormAction} className="flex flex-col gap-3">
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <Label htmlFor="websiteUrl">Website URL</Label>
+                <Input
+                  id="websiteUrl"
+                  name="websiteUrl"
+                  type="url"
+                  placeholder="https://your-business.com"
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={drafting} variant="outline">
+                {drafting ? "Drafting…" : "Draft from URL"}
+              </Button>
+            </div>
+            {draftState.ok && draftState.draft && (
+              <p className="text-sm text-muted-foreground">
+                Draft generated — review and edit the JSON sections below
+                before submitting.
+              </p>
+            )}
+            {draftState.error && (
+              <p className="text-sm text-destructive">{draftState.error}</p>
+            )}
+          </form>
+        </CardContent>
+      </Card>
+
+      <form action={formAction} className="flex flex-col gap-6">
+        <input type="hidden" name="hours" value={JSON.stringify(hours)} />
+        <input type="hidden" name="services" value={services} />
+        <input type="hidden" name="faqs" value={faqs} />
+        <input type="hidden" name="pricing" value={pricing} />
+        <input type="hidden" name="policies" value={policies} />
 
       <Card>
         <CardHeader>
@@ -156,10 +230,10 @@ export function OnboardingForm() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <Json label="Services" name="services" defaultValue={SAMPLE_SERVICES} />
-          <Json label="FAQs" name="faqs" defaultValue={SAMPLE_FAQS} />
-          <Json label="Pricing" name="pricing" defaultValue="{}" />
-          <Json label="Policies" name="policies" defaultValue="{}" />
+          <Json label="Services" value={services} onChange={setServices} />
+          <Json label="FAQs" value={faqs} onChange={setFaqs} />
+          <Json label="Pricing" value={pricing} onChange={setPricing} />
+          <Json label="Policies" value={policies} onChange={setPolicies} />
         </CardContent>
       </Card>
 
@@ -173,12 +247,16 @@ export function OnboardingForm() {
             name="brandVoiceNotes"
             placeholder="Warm, professional, no jargon."
             rows={2}
+            value={brandVoiceNotes}
+            onChange={setBrandVoiceNotes}
           />
           <Textarea
             label="What counts as an emergency?"
             name="emergencyCriteria"
             placeholder="No heat in winter, gas smell, water leak..."
             rows={3}
+            value={emergencyCriteria}
+            onChange={setEmergencyCriteria}
           />
           <Textarea
             label="Voicemail script"
@@ -200,13 +278,14 @@ export function OnboardingForm() {
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending} size="lg">
-          {pending ? "Submitting…" : "Submit"}
+          {pending ? "Submitting…" : "Submit & pay"}
         </Button>
         {state.error && (
           <span className="text-sm text-destructive">{state.error}</span>
         )}
       </div>
-    </form>
+      </form>
+    </div>
   );
 }
 
@@ -244,15 +323,20 @@ function Textarea({
   label,
   name,
   defaultValue,
+  value,
+  onChange,
   rows = 4,
   placeholder,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
+  value?: string;
+  onChange?: (v: string) => void;
   rows?: number;
   placeholder?: string;
 }) {
+  const isControlled = value !== undefined;
   return (
     <div className="grid gap-1.5">
       <Label htmlFor={name}>{label}</Label>
@@ -260,7 +344,9 @@ function Textarea({
         id={name}
         name={name}
         rows={rows}
-        defaultValue={defaultValue}
+        {...(isControlled
+          ? { value, onChange: (e) => onChange?.(e.target.value) }
+          : { defaultValue })}
         placeholder={placeholder}
         className="rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
@@ -270,21 +356,20 @@ function Textarea({
 
 function Json({
   label,
-  name,
-  defaultValue,
+  value,
+  onChange,
 }: {
   label: string;
-  name: string;
-  defaultValue?: string;
+  value: string;
+  onChange: (v: string) => void;
 }) {
   return (
     <div className="grid gap-1.5">
-      <Label htmlFor={name}>{label}</Label>
+      <Label>{label}</Label>
       <textarea
-        id={name}
-        name={name}
         rows={6}
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         className="rounded-md border bg-transparent px-3 py-2 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
     </div>
