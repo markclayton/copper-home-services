@@ -39,7 +39,8 @@ export async function requireBusiness(): Promise<CurrentSession> {
     .where(eq(businesses.ownerUserId, userId))
     .limit(1);
 
-  if (!business) redirect("/account-pending");
+  if (!business) redirect("/onboard");
+  if (business.status !== "live") redirect("/onboard");
 
   return { userId, email, business };
 }

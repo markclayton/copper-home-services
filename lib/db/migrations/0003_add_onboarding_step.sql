@@ -1,0 +1,2 @@
+CREATE TYPE "public"."onboarding_step" AS ENUM('business', 'services', 'hours', 'voice', 'plan', 'provisioning', 'complete');--> statement-breakpoint
+ALTER TABLE "businesses" ADD COLUMN "onboarding_step" "onboarding_step" DEFAULT 'business' NOT NULL;

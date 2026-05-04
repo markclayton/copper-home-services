@@ -25,6 +25,10 @@ export async function createCustomer(args: {
   return customer.id;
 }
 
+/**
+ * Existing-tenant activation checkout (used from /dashboard/billing). Setup
+ * fee included only when STRIPE_PRICE_SETUP is set.
+ */
 export async function createCheckoutSession(args: {
   customerId: string;
   businessId: string;
@@ -59,34 +63,27 @@ export async function createCheckoutSession(args: {
 }
 
 /**
- * Self-serve signup checkout. Creates a Stripe customer for the new tenant,
- * then a subscription checkout session that returns the customer to the
- * "we're setting up your AI" wait page on success.
+ * New-tenant signup checkout — final step of the onboarding wizard.
+ * Includes a 7-day free trial with card up front. The card isn't charged
+ * until day 7, but Stripe collects it now to filter for serious customers.
  */
-export async function createSelfServeCheckout(args: {
+export async function createOnboardingCheckout(args: {
+  customerId: string;
   businessId: string;
-  ownerEmail: string;
-  ownerName: string;
-  ownerPhone: string;
-}): Promise<{ url: string; customerId: string }> {
+  withTrial: boolean;
+}): Promise<{ url: string }> {
   const stripe = getStripe();
   const mrrPrice = requireEnv("STRIPE_PRICE_MRR");
 
-  const customer = await stripe.customers.create({
-    name: args.ownerName,
-    email: args.ownerEmail,
-    phone: args.ownerPhone,
-    metadata: { businessId: args.businessId },
-  });
-
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
-    customer: customer.id,
+    customer: args.customerId,
     line_items: [{ price: mrrPrice, quantity: 1 }],
     success_url: `${env.APP_URL}/onboard/setup/${args.businessId}`,
-    cancel_url: `${env.APP_URL}/onboard?status=canceled`,
+    cancel_url: `${env.APP_URL}/onboard/plan?status=canceled`,
     subscription_data: {
       metadata: { businessId: args.businessId },
+      ...(args.withTrial ? { trial_period_days: 7 } : {}),
     },
     metadata: { businessId: args.businessId, flow: "new_tenant" },
   });
@@ -94,7 +91,7 @@ export async function createSelfServeCheckout(args: {
   if (!session.url) {
     throw new Error("Stripe did not return a checkout URL");
   }
-  return { url: session.url, customerId: customer.id };
+  return { url: session.url };
 }
 
 export async function createPortalSession(args: {

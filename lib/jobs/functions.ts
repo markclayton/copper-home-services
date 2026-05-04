@@ -366,14 +366,14 @@ export const tenantProvisioning = inngest.createFunction(
       );
     }
 
-    await step.run("mark-live", async () => {
-      await db
-        .update(businesses)
-        .set({ status: "live", updatedAt: new Date() })
-        .where(eq(businesses.id, businessId));
+    // Provisioning succeeded — but the tenant only goes "live" after payment.
+    // The Stripe checkout.session.completed webhook is what flips status.
+    // This function just makes sure the technical infrastructure is wired up
+    // so the plan-step UI can display the reserved phone number.
+    await step.run("log-provisioned", async () => {
       await db.insert(events).values({
         businessId,
-        type: "tenant.live",
+        type: "tenant.provisioned",
         payload: { steps: result.steps },
       });
     });

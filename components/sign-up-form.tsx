@@ -40,15 +40,22 @@ export function SignUpForm({
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/dashboard`,
+          emailRedirectTo: `${window.location.origin}/onboard/business`,
         },
       });
       if (error) throw error;
-      router.push("/auth/sign-up-success");
+      // If email confirmation is disabled in Supabase, session is set immediately
+      // and we can drop the user straight into the wizard. If confirmation is
+      // required, sign-up-success shows the "check your email" message.
+      if (data.session) {
+        router.push("/onboard/business");
+      } else {
+        router.push("/auth/sign-up-success");
+      }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
     } finally {
@@ -60,8 +67,11 @@ export function SignUpForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Sign up</CardTitle>
-          <CardDescription>Create a new account</CardDescription>
+          <CardTitle className="text-2xl">Get started</CardTitle>
+          <CardDescription>
+            Create your account — you&apos;ll set up your AI receptionist on
+            the next few screens.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignUp}>

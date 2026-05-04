@@ -35,7 +35,7 @@ export default function Home() {
         </p>
         <div className="flex gap-3">
           <Button asChild>
-            <Link href="/dashboard">Open dashboard</Link>
+            <Link href="/auth/sign-up">Get started</Link>
           </Button>
           <Button variant="outline" asChild>
             <Link href="/auth/login">Sign in</Link>

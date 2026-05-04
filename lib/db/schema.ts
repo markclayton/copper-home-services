@@ -20,6 +20,16 @@ export const businessStatus = pgEnum("business_status", [
 
 export const planTier = pgEnum("plan_tier", ["default"]);
 
+export const onboardingStep = pgEnum("onboarding_step", [
+  "business",
+  "services",
+  "hours",
+  "voice",
+  "plan",
+  "provisioning",
+  "complete",
+]);
+
 export const callDirection = pgEnum("call_direction", ["inbound", "outbound"]);
 
 export const callStatus = pgEnum("call_status", [
@@ -110,6 +120,7 @@ export const businesses = pgTable(
     stripeSubscriptionStatus: text(),
     setupFeePaidAt: timestamp({ withTimezone: true }),
     status: businessStatus().notNull().default("pending"),
+    onboardingStep: onboardingStep().notNull().default("business"),
     planTier: planTier().notNull().default("default"),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

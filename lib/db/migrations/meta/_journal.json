@@ -22,6 +22,13 @@
       "when": 1777645215772,
       "tag": "0002_add_stripe_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777931179182,
+      "tag": "0003_add_onboarding_step",
+      "breakpoints": true
     }
   ]
 }

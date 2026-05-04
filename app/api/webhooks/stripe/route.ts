@@ -5,7 +5,6 @@ import { db } from "@/lib/db";
 import { businesses, events } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { getStripe } from "@/lib/billing/stripe";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { inngest } from "@/lib/jobs/client";
 
 export async function POST(req: NextRequest) {
@@ -116,8 +115,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 /**
- * Self-serve activation: invite the owner via magic link, link the auth user
- * to the business, and trigger provisioning.
+ * New-tenant payment success. The auth user already exists (signed up before
+ * starting the wizard) and provisioning ran in the background after step 4.
+ * This handler just flips the business to live + complete so the dashboard
+ * gate opens.
+ *
+ * If provisioning failed earlier or the user paid before it finished, we
+ * re-fire the Inngest event — provisionTenant is idempotent so it'll either
+ * pick up the failed step or skip everything cleanly.
  */
 async function activateNewTenant(businessId: string) {
   const [business] = await db
@@ -127,39 +132,28 @@ async function activateNewTenant(businessId: string) {
     .limit(1);
   if (!business) return;
 
-  // Skip if already linked (idempotent on retried webhooks).
-  if (!business.ownerUserId) {
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase.auth.admin.inviteUserByEmail(
-      business.ownerEmail,
-      { redirectTo: `${env.APP_URL}/dashboard` },
-    );
+  await db
+    .update(businesses)
+    .set({
+      status: "live",
+      onboardingStep: "complete",
+      updatedAt: new Date(),
+    })
+    .where(eq(businesses.id, businessId));
 
-    if (error || !data?.user) {
-      await db.insert(events).values({
-        businessId,
-        type: "tenant.invite.failed",
-        payload: { message: error?.message ?? "no user returned" },
-      });
-      return;
-    }
+  await db.insert(events).values({
+    businessId,
+    type: "tenant.live",
+    payload: { trigger: "stripe.checkout.completed" },
+  });
 
-    await db
-      .update(businesses)
-      .set({ ownerUserId: data.user.id, updatedAt: new Date() })
-      .where(eq(businesses.id, businessId));
-
-    await db.insert(events).values({
-      businessId,
-      type: "tenant.invited",
-      payload: { userId: data.user.id, email: business.ownerEmail },
+  // Safety net: re-fire provisioning if anything's missing. Idempotent.
+  if (!business.twilioNumber || !business.vapiAssistantId) {
+    await inngest.send({
+      name: "tenant/provision-needed",
+      data: { businessId },
     });
   }
-
-  await inngest.send({
-    name: "tenant/provision-needed",
-    data: { businessId },
-  });
 }
 
 async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
