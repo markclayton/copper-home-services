@@ -6,10 +6,12 @@ import {
   businesses,
   calls,
   contacts,
+  messages,
   reviewRequests,
   type Appointment,
   type Business,
   type Call,
+  type Message,
   type ReviewRequest,
 } from "@/lib/db/schema";
 import { createClient } from "@/lib/supabase/server";
@@ -253,5 +255,37 @@ export async function listReviewRequests(
     .leftJoin(contacts, eq(reviewRequests.contactId, contacts.id))
     .where(eq(reviewRequests.businessId, businessId))
     .orderBy(desc(reviewRequests.createdAt))
+    .limit(limit);
+}
+
+export type MessageListItem = Message & {
+  contactName: string | null;
+  contactPhone: string | null;
+};
+
+export async function listMessages(
+  businessId: string,
+  limit = 100,
+): Promise<MessageListItem[]> {
+  return db
+    .select({
+      id: messages.id,
+      businessId: messages.businessId,
+      contactId: messages.contactId,
+      direction: messages.direction,
+      body: messages.body,
+      twilioSid: messages.twilioSid,
+      status: messages.status,
+      fromNumber: messages.fromNumber,
+      toNumber: messages.toNumber,
+      sentAt: messages.sentAt,
+      createdAt: messages.createdAt,
+      contactName: contacts.name,
+      contactPhone: contacts.phone,
+    })
+    .from(messages)
+    .leftJoin(contacts, eq(messages.contactId, contacts.id))
+    .where(eq(messages.businessId, businessId))
+    .orderBy(desc(messages.createdAt))
     .limit(limit);
 }
