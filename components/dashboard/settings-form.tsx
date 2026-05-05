@@ -16,6 +16,11 @@ import {
   saveSettings,
   type SaveSettingsState,
 } from "@/app/dashboard/settings/actions";
+import {
+  ServicesEditor,
+  type ServiceRow,
+} from "@/components/onboarding/services-editor";
+import { FaqsEditor, type FaqRow } from "@/components/onboarding/faqs-editor";
 import type { Business, KnowledgeBase } from "@/lib/db/schema";
 
 const INITIAL: SaveSettingsState = { ok: false };
@@ -44,10 +49,27 @@ const DEFAULT_HOURS: Hours = {
   sun: { open: "", close: "", closed: true },
 };
 
-function pretty(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2);
+function asServices(value: unknown): ServiceRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
+    .map((v) => ({
+      name: typeof v.name === "string" ? v.name : "",
+      description: typeof v.description === "string" ? v.description : "",
+      priceRange: typeof v.priceRange === "string" ? v.priceRange : "",
+      typicalDuration:
+        typeof v.typicalDuration === "string" ? v.typicalDuration : "",
+    }));
+}
+
+function asFaqs(value: unknown): FaqRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
+    .map((v) => ({
+      q: typeof v.q === "string" ? v.q : "",
+      a: typeof v.a === "string" ? v.a : "",
+    }));
 }
 
 export function SettingsForm({
@@ -61,6 +83,8 @@ export function SettingsForm({
 
   const initialHours = (business.hours as Hours | null) ?? DEFAULT_HOURS;
   const [hours, setHours] = useState<Hours>({ ...DEFAULT_HOURS, ...initialHours });
+  const [services, setServices] = useState<ServiceRow[]>(asServices(kb?.services));
+  const [faqs, setFaqs] = useState<FaqRow[]>(asFaqs(kb?.faqs));
 
   function updateDay(day: DayKey, patch: Partial<HoursDay>) {
     setHours((prev) => ({ ...prev, [day]: { ...prev[day], ...patch } }));
@@ -69,6 +93,8 @@ export function SettingsForm({
   return (
     <form action={formAction} className="flex flex-col gap-6 max-w-3xl">
       <input type="hidden" name="hours" value={JSON.stringify(hours)} />
+      <input type="hidden" name="services" value={JSON.stringify(services)} />
+      <input type="hidden" name="faqs" value={JSON.stringify(faqs)} />
 
       <Card>
         <CardHeader>
@@ -142,37 +168,27 @@ export function SettingsForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>Knowledge base</CardTitle>
+          <CardTitle>Services</CardTitle>
           <CardDescription>
-            JSON for V1. Owner-facing editors come later. Each section will be
-            included in the AI assistant&apos;s prompt.
+            What you offer, with rough pricing. The AI quotes only what&apos;s
+            here.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4">
-          <JsonField
-            label="Services"
-            name="services"
-            defaultValue={pretty(kb?.services)}
-            placeholder='[{"name":"AC repair","priceRange":"$150 + parts"}]'
-          />
-          <JsonField
-            label="FAQs"
-            name="faqs"
-            defaultValue={pretty(kb?.faqs)}
-            placeholder='[{"q":"Are you licensed?","a":"Yes."}]'
-          />
-          <JsonField
-            label="Pricing"
-            name="pricing"
-            defaultValue={pretty(kb?.pricing)}
-            placeholder='{"diagnostic":150}'
-          />
-          <JsonField
-            label="Policies"
-            name="policies"
-            defaultValue={pretty(kb?.policies)}
-            placeholder='{"warranty":"1 year on labor"}'
-          />
+        <CardContent>
+          <ServicesEditor value={services} onChange={setServices} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>FAQs</CardTitle>
+          <CardDescription>
+            The questions callers ask most. The AI answers using these
+            directly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FaqsEditor value={faqs} onChange={setFaqs} />
         </CardContent>
       </Card>
 
@@ -288,32 +304,6 @@ function TextareaField({
         defaultValue={defaultValue}
         placeholder={placeholder}
         className="rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      />
-    </div>
-  );
-}
-
-function JsonField({
-  label,
-  name,
-  defaultValue,
-  placeholder,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-  placeholder?: string;
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <Label htmlFor={name}>{label}</Label>
-      <textarea
-        id={name}
-        name={name}
-        rows={6}
-        defaultValue={defaultValue}
-        placeholder={placeholder}
-        className="rounded-md border bg-transparent px-3 py-2 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
     </div>
   );

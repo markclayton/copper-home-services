@@ -25,6 +25,11 @@ const DRAFT_TOOL = {
             type: "object",
             properties: {
               name: { type: "string" },
+              description: {
+                type: "string",
+                description:
+                  "1-2 sentence description of the service — what's included, what to expect. Pull directly from the website copy when possible.",
+              },
               priceRange: {
                 type: "string",
                 description:
@@ -82,6 +87,7 @@ const DRAFT_TOOL = {
 export type KbDraft = {
   services: Array<{
     name: string;
+    description?: string;
     priceRange?: string;
     typicalDuration?: string;
   }>;
@@ -97,24 +103,81 @@ function stripHtml(html: string): string {
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<header[\s\S]*?<\/header>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
     .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
     .replace(/\s+/g, " ")
     .trim();
 }
 
-async function fetchSite(url: string): Promise<string> {
-  const res = await fetch(url, {
-    redirect: "follow",
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (compatible; CopperBot/1.0; +https://copper.dev)",
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`Fetch ${url} returned ${res.status}`);
+async function fetchOne(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; CopperBot/1.0; +https://copper.dev)",
+      },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const text = stripHtml(html);
+    return text.length < 50 ? null : text;
+  } catch {
+    return null;
   }
-  const html = await res.text();
-  return stripHtml(html).slice(0, 20_000);
+}
+
+const COMMON_SUBPATHS = [
+  "",
+  "/services",
+  "/pricing",
+  "/about",
+  "/faq",
+  "/faqs",
+];
+
+/**
+ * Fetches the homepage plus a few common subpaths and concatenates the text.
+ * Most home-services marketing sites scatter the relevant info across pages,
+ * so reading only the homepage misses services half the time.
+ */
+async function fetchSite(rawUrl: string): Promise<string> {
+  const base = new URL(rawUrl);
+  base.search = "";
+  base.hash = "";
+  const root = base.toString().replace(/\/$/, "");
+
+  const urls = COMMON_SUBPATHS.map((path) => `${root}${path}`);
+  const pages = await Promise.all(urls.map(fetchOne));
+
+  const seen = new Set<string>();
+  const chunks: string[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    const text = pages[i];
+    if (!text) continue;
+    // skip duplicates (homepage often equals subpath when 404 redirects)
+    const head = text.slice(0, 200);
+    if (seen.has(head)) continue;
+    seen.add(head);
+    chunks.push(`### ${urls[i]}\n${text}`);
+  }
+
+  if (chunks.length === 0) {
+    throw new Error(
+      "Couldn't reach that website (or it returned no readable content). Double-check the URL or fill the form below manually.",
+    );
+  }
+
+  return chunks.join("\n\n").slice(0, 40_000);
 }
 
 export async function draftKbFromUrl(url: string): Promise<KbDraft> {

@@ -11,46 +11,41 @@ import {
   type ServicesDraftState,
   type ServicesStepState,
 } from "@/app/onboard/services/actions";
+import { ServicesEditor, type ServiceRow } from "./services-editor";
+import { FaqsEditor, type FaqRow } from "./faqs-editor";
 import type { KnowledgeBase } from "@/lib/db/schema";
 
 const DRAFT_INITIAL: ServicesDraftState = { ok: false };
 const SAVE_INITIAL: ServicesStepState = { ok: false };
 
-const SAMPLE_SERVICES = JSON.stringify(
-  [
-    {
-      name: "AC repair",
-      priceRange: "$150 + parts",
-      typicalDuration: "1–2 hours",
-    },
-  ],
-  null,
-  2,
-);
+function asServices(value: unknown): ServiceRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
+    .map((v) => ({
+      name: typeof v.name === "string" ? v.name : "",
+      description: typeof v.description === "string" ? v.description : "",
+      priceRange: typeof v.priceRange === "string" ? v.priceRange : "",
+      typicalDuration:
+        typeof v.typicalDuration === "string" ? v.typicalDuration : "",
+    }));
+}
 
-const SAMPLE_FAQS = JSON.stringify(
-  [{ q: "Are you licensed?", a: "Yes." }],
-  null,
-  2,
-);
-
-function pretty(value: unknown, fallback: string): string {
-  if (value == null) return fallback;
-  if (typeof value === "string") return value;
-  const arr = Array.isArray(value) ? value : [];
-  if (arr.length === 0 && typeof value === "object" && !Array.isArray(value)) {
-    return Object.keys(value).length === 0
-      ? fallback
-      : JSON.stringify(value, null, 2);
-  }
-  return JSON.stringify(value, null, 2);
+function asFaqs(value: unknown): FaqRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
+    .map((v) => ({
+      q: typeof v.q === "string" ? v.q : "",
+      a: typeof v.a === "string" ? v.a : "",
+    }));
 }
 
 export function ServicesStepForm({ kb }: { kb: KnowledgeBase | null }) {
-  const [services, setServices] = useState<string>(
-    pretty(kb?.services, SAMPLE_SERVICES),
+  const [services, setServices] = useState<ServiceRow[]>(
+    asServices(kb?.services),
   );
-  const [faqs, setFaqs] = useState<string>(pretty(kb?.faqs, SAMPLE_FAQS));
+  const [faqs, setFaqs] = useState<FaqRow[]>(asFaqs(kb?.faqs));
 
   const [draftState, draftAction, drafting] = useActionState(
     draftFromUrlAction,
@@ -65,9 +60,8 @@ export function ServicesStepForm({ kb }: { kb: KnowledgeBase | null }) {
   if (draftState.ok && draftState.draft && draftState !== lastDraftRef.current) {
     lastDraftRef.current = draftState;
     const d = draftState.draft;
-    if (d.services?.length)
-      setServices(JSON.stringify(d.services, null, 2));
-    if (d.faqs?.length) setFaqs(JSON.stringify(d.faqs, null, 2));
+    if (d.services?.length) setServices(asServices(d.services));
+    if (d.faqs?.length) setFaqs(asFaqs(d.faqs));
   }
 
   return (
@@ -78,7 +72,10 @@ export function ServicesStepForm({ kb }: { kb: KnowledgeBase | null }) {
         drafter if you have a website to save typing.
       </p>
 
-      <form action={draftAction} className="rounded-md border bg-muted/30 p-4 mb-2">
+      <form
+        action={draftAction}
+        className="rounded-md border bg-muted/30 p-4 mb-2"
+      >
         <div className="flex gap-3 items-end">
           <div className="flex-1">
             <Label htmlFor="websiteUrl" className="flex items-center gap-1.5">
@@ -106,32 +103,26 @@ export function ServicesStepForm({ kb }: { kb: KnowledgeBase | null }) {
         )}
       </form>
 
-      <form action={saveAction} className="flex flex-col gap-5">
-        <div className="grid gap-2">
-          <Label htmlFor="services">Services</Label>
-          <textarea
-            id="services"
-            name="services"
-            rows={8}
-            value={services}
-            onChange={(e) => setServices(e.target.value)}
-            className="rounded-md border bg-transparent px-3 py-2 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          />
+      <form action={saveAction} className="flex flex-col gap-6">
+        <input type="hidden" name="services" value={JSON.stringify(services)} />
+        <input type="hidden" name="faqs" value={JSON.stringify(faqs)} />
+
+        <div className="flex flex-col gap-2">
+          <Label className="text-sm font-medium">Services</Label>
           <p className="text-xs text-muted-foreground">
-            Each service: name, optional priceRange, optional typicalDuration.
+            What you offer, with rough pricing. The AI quotes only what&apos;s
+            here.
           </p>
+          <ServicesEditor value={services} onChange={setServices} />
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="faqs">FAQs</Label>
-          <textarea
-            id="faqs"
-            name="faqs"
-            rows={8}
-            value={faqs}
-            onChange={(e) => setFaqs(e.target.value)}
-            className="rounded-md border bg-transparent px-3 py-2 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          />
+        <div className="flex flex-col gap-2">
+          <Label className="text-sm font-medium">FAQs</Label>
+          <p className="text-xs text-muted-foreground">
+            Common questions callers ask. The AI uses these to answer
+            directly without escalating.
+          </p>
+          <FaqsEditor value={faqs} onChange={setFaqs} />
         </div>
 
         {saveState.error && (

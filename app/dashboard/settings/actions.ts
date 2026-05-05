@@ -42,8 +42,6 @@ const settingsSchema = z.object({
   // knowledge base
   services: z.string(), // JSON
   faqs: z.string(), // JSON
-  pricing: z.string(), // JSON
-  policies: z.string(), // JSON
 
   // voice config
   brandVoiceNotes: z.string().optional(),
@@ -88,14 +86,10 @@ export async function saveSettings(
   let hours: unknown;
   let services: unknown;
   let faqs: unknown;
-  let pricing: unknown;
-  let policies: unknown;
   try {
     hours = hoursSchema.parse(parseJson(v.hours, "hours"));
     services = parseJson(v.services, "services");
     faqs = parseJson(v.faqs, "faqs");
-    pricing = parseJson(v.pricing, "pricing");
-    policies = parseJson(v.policies, "policies");
   } catch (err) {
     return {
       ok: false,
@@ -132,8 +126,6 @@ export async function saveSettings(
     .set({
       services: services as Record<string, unknown>,
       faqs: faqs as Record<string, unknown>,
-      pricing: pricing as Record<string, unknown>,
-      policies: policies as Record<string, unknown>,
       brandVoiceNotes: v.brandVoiceNotes || null,
       emergencyCriteria: v.emergencyCriteria || null,
       voicemailScript: v.voicemailScript || null,

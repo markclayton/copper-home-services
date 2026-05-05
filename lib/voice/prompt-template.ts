@@ -2,6 +2,7 @@ import type { Business, KnowledgeBase } from "@/lib/db/schema";
 
 type Service = {
   name: string;
+  description?: string;
   priceRange?: string;
   typicalDuration?: string;
 };
@@ -18,11 +19,15 @@ function formatServices(services: unknown): string {
   if (!Array.isArray(services) || services.length === 0)
     return "(none configured)";
   return (services as Service[])
-    .map((s) =>
-      `- ${s.name}` +
-      (s.priceRange ? ` — ${s.priceRange}` : "") +
-      (s.typicalDuration ? ` (typical: ${s.typicalDuration})` : ""),
-    )
+    .map((s) => {
+      const header =
+        `- ${s.name}` +
+        (s.priceRange ? ` — ${s.priceRange}` : "") +
+        (s.typicalDuration ? ` (typical: ${s.typicalDuration})` : "");
+      return s.description
+        ? `${header}\n    ${s.description}`
+        : header;
+    })
     .join("\n");
 }
 
