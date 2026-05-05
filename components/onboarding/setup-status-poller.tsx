@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Status = "pending" | "live" | "paused";
 
@@ -11,11 +12,15 @@ export function SetupStatusPoller({
   businessId: string;
   initialStatus: Status;
 }) {
+  const router = useRouter();
   const [status, setStatus] = useState<Status>(initialStatus);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === "live") return;
+    if (status === "live") {
+      router.replace("/dashboard");
+      return;
+    }
 
     let cancelled = false;
     const interval = setInterval(async () => {
@@ -29,6 +34,7 @@ export function SetupStatusPoller({
         setStatus(data.status);
         if (data.status === "live") {
           clearInterval(interval);
+          router.replace("/dashboard");
         }
       } catch (err) {
         if (cancelled) return;
@@ -40,14 +46,14 @@ export function SetupStatusPoller({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [businessId, status]);
+  }, [businessId, status, router]);
 
   if (status === "live") {
     return (
       <div className="rounded-md border bg-accent/30 p-4 text-sm">
         <div className="font-medium">You&apos;re live.</div>
         <p className="text-muted-foreground mt-1">
-          Check your email for a sign-in link to access your dashboard.
+          Taking you to your dashboard…
         </p>
       </div>
     );

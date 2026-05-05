@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { businesses } from "@/lib/db/schema";
@@ -9,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { SetupStatusPoller } from "@/components/onboarding/setup-status-poller";
 
 const UUID_RE =
@@ -47,25 +45,17 @@ export default async function SetupPage({
     <main className="min-h-screen flex items-center justify-center p-6">
       <Card className="max-w-md w-full">
         <CardHeader>
-          <CardTitle>Setting up {business.name}</CardTitle>
+          <CardTitle>Almost there</CardTitle>
           <CardDescription>
-            We&apos;re wiring up your phone number and AI assistant. This usually
-            takes 30–60 seconds.
+            We&apos;re finishing setup for {business.name}. This usually takes
+            a few seconds.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent>
           <SetupStatusPoller
             businessId={business.id}
             initialStatus={business.status}
           />
-          <p className="text-xs text-muted-foreground">
-            Once setup completes, we&apos;ll email you a sign-in link. You can
-            also{" "}
-            <Link href="/auth/login" className="underline">
-              sign in here
-            </Link>{" "}
-            after the email arrives.
-          </p>
         </CardContent>
       </Card>
     </main>
