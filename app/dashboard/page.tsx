@@ -1,5 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getTodayMetrics, requireBusiness } from "@/lib/db/queries";
+import { formatPhone } from "@/lib/format";
 
 export default async function TodayPage() {
   const { business } = await requireBusiness();
@@ -19,6 +20,23 @@ export default async function TodayPage() {
           }).format(new Date())}
         </p>
       </div>
+
+      {business.twilioNumber && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Your AI receptionist number</CardDescription>
+            <CardTitle className="text-2xl font-mono tracking-tight">
+              {formatPhone(business.twilioNumber)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">
+              Call this number to test your AI. Transcripts and bookings will
+              show up under Calls.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard
