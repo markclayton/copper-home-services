@@ -145,7 +145,6 @@ export default async function CallDetailPage({
 
       <div className="text-xs text-muted-foreground">
         Call ID: {call.id}
-        {call.vapiCallId && <> · Vapi ID: {call.vapiCallId}</>}
       </div>
     </div>
   );

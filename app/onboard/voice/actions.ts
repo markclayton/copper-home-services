@@ -7,8 +7,10 @@ import { db } from "@/lib/db";
 import { businesses, knowledgeBase } from "@/lib/db/schema";
 import { loadDraftSession } from "@/lib/onboarding/draft-business";
 import { inngest } from "@/lib/jobs/client";
+import { DEFAULT_VOICE_ID, isValidVoiceId } from "@/lib/voice/voices";
 
 const schema = z.object({
+  voiceId: z.string().refine(isValidVoiceId, "Pick a voice").optional(),
   brandVoiceNotes: z.string().optional(),
   emergencyCriteria: z.string().optional(),
   voicemailScript: z.string().optional(),
@@ -23,6 +25,7 @@ export async function saveVoiceStep(
   const { business } = await loadDraftSession();
 
   const parsed = schema.safeParse({
+    voiceId: form.get("voiceId"),
     brandVoiceNotes: form.get("brandVoiceNotes"),
     emergencyCriteria: form.get("emergencyCriteria"),
     voicemailScript: form.get("voicemailScript"),
@@ -49,7 +52,11 @@ export async function saveVoiceStep(
   // the plan options.
   await db
     .update(businesses)
-    .set({ onboardingStep: "plan", updatedAt: new Date() })
+    .set({
+      voiceId: parsed.data.voiceId ?? DEFAULT_VOICE_ID,
+      onboardingStep: "plan",
+      updatedAt: new Date(),
+    })
     .where(eq(businesses.id, business.id));
 
   await inngest.send({

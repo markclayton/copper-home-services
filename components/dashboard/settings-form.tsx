@@ -21,6 +21,8 @@ import {
   type ServiceRow,
 } from "@/components/onboarding/services-editor";
 import { FaqsEditor, type FaqRow } from "@/components/onboarding/faqs-editor";
+import { VoicePicker } from "@/components/onboarding/voice-picker";
+import { DEFAULT_VOICE_ID } from "@/lib/voice/voices";
 import type { Business, KnowledgeBase } from "@/lib/db/schema";
 
 const INITIAL: SaveSettingsState = { ok: false };
@@ -85,6 +87,9 @@ export function SettingsForm({
   const [hours, setHours] = useState<Hours>({ ...DEFAULT_HOURS, ...initialHours });
   const [services, setServices] = useState<ServiceRow[]>(asServices(kb?.services));
   const [faqs, setFaqs] = useState<FaqRow[]>(asFaqs(kb?.faqs));
+  const [voiceId, setVoiceId] = useState<string>(
+    business.voiceId ?? DEFAULT_VOICE_ID,
+  );
 
   function updateDay(day: DayKey, patch: Partial<HoursDay>) {
     setHours((prev) => ({ ...prev, [day]: { ...prev[day], ...patch } }));
@@ -95,6 +100,7 @@ export function SettingsForm({
       <input type="hidden" name="hours" value={JSON.stringify(hours)} />
       <input type="hidden" name="services" value={JSON.stringify(services)} />
       <input type="hidden" name="faqs" value={JSON.stringify(faqs)} />
+      <input type="hidden" name="voiceId" value={voiceId} />
 
       <Card>
         <CardHeader>
@@ -196,15 +202,19 @@ export function SettingsForm({
         <CardHeader>
           <CardTitle>Voice & behavior</CardTitle>
           <CardDescription>
-            Free-text fields the AI uses to set tone and handle edge cases.
+            Pick the voice your callers hear, plus any tone quirks.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label>Voice</Label>
+            <VoicePicker value={voiceId} onChange={setVoiceId} />
+          </div>
           <TextareaField
-            label="Brand voice notes"
+            label="Personality notes"
             name="brandVoiceNotes"
             defaultValue={kb?.brandVoiceNotes ?? ""}
-            placeholder="Warm, professional, no jargon unless the caller uses it first."
+            placeholder="No jargon, skip pleasantries, keep it brief."
             rows={2}
           />
           <TextareaField

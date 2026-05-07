@@ -16,7 +16,6 @@ import {
   type VapiAssistantConfig,
 } from "./vapi";
 
-const DEFAULT_VOICE = { provider: "vapi", voiceId: "Elliot" };
 const DEFAULT_TRANSCRIBER = {
   provider: "deepgram",
   model: "nova-2",
@@ -69,7 +68,7 @@ export async function deployAssistant(
       messages: [{ role: "system", content: systemPrompt }],
       tools,
     },
-    voice: DEFAULT_VOICE,
+    voice: { provider: "vapi", voiceId: business.voiceId },
     transcriber: DEFAULT_TRANSCRIBER,
     server: env.VAPI_WEBHOOK_SECRET
       ? {

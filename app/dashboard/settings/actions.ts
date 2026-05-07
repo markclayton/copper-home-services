@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import { requireBusiness } from "@/lib/db/queries";
 import { deployAssistant } from "@/lib/voice/deploy";
+import { DEFAULT_VOICE_ID, isValidVoiceId } from "@/lib/voice/voices";
 
 const hoursDay = z.object({
   open: z.string(),
@@ -44,6 +45,7 @@ const settingsSchema = z.object({
   faqs: z.string(), // JSON
 
   // voice config
+  voiceId: z.string().refine(isValidVoiceId, "Pick a voice").optional(),
   brandVoiceNotes: z.string().optional(),
   emergencyCriteria: z.string().optional(),
   voicemailScript: z.string().optional(),
@@ -112,6 +114,7 @@ export async function saveSettings(
     timezone: v.timezone,
     serviceAreaZips: zips,
     googleReviewUrl: v.googleReviewUrl || null,
+    voiceId: v.voiceId ?? DEFAULT_VOICE_ID,
     hours: hours as Record<string, unknown>,
     updatedAt: new Date(),
   };
@@ -139,10 +142,10 @@ export async function saveSettings(
   try {
     const result = await deployAssistant(business.id);
     deployStatus = result.ok
-      ? `Vapi assistant ${result.action} (${result.assistantId}).`
-      : `Settings saved. Vapi not redeployed: ${result.reason}.`;
+      ? "Your AI is updated."
+      : `Saved, but your AI couldn't update right now: ${result.reason}.`;
   } catch (err) {
-    deployStatus = `Settings saved. Vapi redeploy failed: ${
+    deployStatus = `Saved, but your AI couldn't update right now: ${
       err instanceof Error ? err.message : String(err)
     }`;
   }

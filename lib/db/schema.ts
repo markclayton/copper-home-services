@@ -115,6 +115,7 @@ export const businesses = pgTable(
     twilioNumber: text(),
     vapiPhoneNumberId: text(),
     googleReviewUrl: text(),
+    voiceId: text().notNull().default("Elliot"),
     stripeCustomerId: text(),
     stripeSubscriptionId: text(),
     stripeSubscriptionStatus: text(),

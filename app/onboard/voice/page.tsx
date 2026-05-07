@@ -3,5 +3,5 @@ import { VoiceStepForm } from "@/components/onboarding/voice-step-form";
 
 export default async function VoiceStepPage() {
   const session = await requireStep("voice");
-  return <VoiceStepForm kb={session.kb} />;
+  return <VoiceStepForm business={session.business} kb={session.kb} />;
 }
