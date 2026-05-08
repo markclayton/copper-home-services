@@ -53,11 +53,22 @@ export type TodayMetrics = {
   emergencies: number;
   reviewsRequested: number;
   conversionPct: number;
+  deltas: {
+    calls: number;
+    booked: number;
+    emergencies: number;
+  };
 };
 
-export async function getTodayMetrics(business: Business): Promise<TodayMetrics> {
+export async function getTodayMetrics(
+  business: Business,
+): Promise<TodayMetrics> {
   const tz = business.timezone;
   const todayStart = sql`date_trunc('day', now() AT TIME ZONE ${tz})`;
+  const yesterdayStart = sql`date_trunc('day', now() AT TIME ZONE ${tz}) - interval '1 day'`;
+  // "Now-equivalent" timestamp 24h earlier — lets us compare apples-to-apples
+  // even at 9 AM (don't compare today's 9h to all of yesterday).
+  const yesterdayNow = sql`(now() AT TIME ZONE ${tz}) - interval '1 day'`;
   const callLocal = sql`(${calls.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE ${tz}`;
   const apptLocal = sql`(${appointments.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE ${tz}`;
   const reviewLocal = sql`(${reviewRequests.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE ${tz}`;
@@ -68,19 +79,39 @@ export async function getTodayMetrics(business: Business): Promise<TodayMetrics>
       emergencies: sql<number>`count(*) filter (where ${calls.isEmergency})`.as(
         "emergencies",
       ),
+      yesterdayTotal:
+        sql<number>`count(*) filter (where ${callLocal} >= ${yesterdayStart} and ${callLocal} < ${yesterdayNow})`.as(
+          "yesterday_total",
+        ),
+      yesterdayEmergencies:
+        sql<number>`count(*) filter (where ${calls.isEmergency} and ${callLocal} >= ${yesterdayStart} and ${callLocal} < ${yesterdayNow})`.as(
+          "yesterday_emergencies",
+        ),
+      todayTotal:
+        sql<number>`count(*) filter (where ${callLocal} >= ${todayStart})`.as(
+          "today_total",
+        ),
+      todayEmergencies:
+        sql<number>`count(*) filter (where ${calls.isEmergency} and ${callLocal} >= ${todayStart})`.as(
+          "today_emergencies",
+        ),
     })
     .from(calls)
-    .where(and(eq(calls.businessId, business.id), gte(callLocal, todayStart)));
+    .where(eq(calls.businessId, business.id));
 
-  const [bookedStats] = await db
-    .select({ total: count() })
+  const [apptStats] = await db
+    .select({
+      todayTotal:
+        sql<number>`count(*) filter (where ${apptLocal} >= ${todayStart})`.as(
+          "today_total",
+        ),
+      yesterdayTotal:
+        sql<number>`count(*) filter (where ${apptLocal} >= ${yesterdayStart} and ${apptLocal} < ${yesterdayNow})`.as(
+          "yesterday_total",
+        ),
+    })
     .from(appointments)
-    .where(
-      and(
-        eq(appointments.businessId, business.id),
-        gte(apptLocal, todayStart),
-      ),
-    );
+    .where(eq(appointments.businessId, business.id));
 
   const [reviewStats] = await db
     .select({ total: count() })
@@ -92,16 +123,58 @@ export async function getTodayMetrics(business: Business): Promise<TodayMetrics>
       ),
     );
 
-  const totalCalls = callStats?.total ?? 0;
-  const bookedToday = bookedStats?.total ?? 0;
+  const totalCalls = Number(callStats?.todayTotal ?? 0);
+  const bookedToday = Number(apptStats?.todayTotal ?? 0);
+  const emergencies = Number(callStats?.todayEmergencies ?? 0);
+  const yesterdayCalls = Number(callStats?.yesterdayTotal ?? 0);
+  const yesterdayBooked = Number(apptStats?.yesterdayTotal ?? 0);
+  const yesterdayEmergencies = Number(callStats?.yesterdayEmergencies ?? 0);
+
   return {
     totalCalls,
     bookedToday,
-    emergencies: Number(callStats?.emergencies ?? 0),
+    emergencies,
     reviewsRequested: reviewStats?.total ?? 0,
     conversionPct:
       totalCalls > 0 ? Math.round((bookedToday / totalCalls) * 100) : 0,
+    deltas: {
+      calls: totalCalls - yesterdayCalls,
+      booked: bookedToday - yesterdayBooked,
+      emergencies: emergencies - yesterdayEmergencies,
+    },
   };
+}
+
+export async function getTodayCalls(
+  business: Business,
+  limit = 8,
+): Promise<CallListItem[]> {
+  const tz = business.timezone;
+  const todayStart = sql`date_trunc('day', now() AT TIME ZONE ${tz})`;
+  const callLocal = sql`(${calls.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE ${tz}`;
+
+  return db
+    .select({
+      id: calls.id,
+      direction: calls.direction,
+      status: calls.status,
+      intent: calls.intent,
+      outcome: calls.outcome,
+      isEmergency: calls.isEmergency,
+      summary: calls.summary,
+      fromNumber: calls.fromNumber,
+      durationSec: calls.durationSec,
+      startedAt: calls.startedAt,
+      endedAt: calls.endedAt,
+      createdAt: calls.createdAt,
+      contactName: contacts.name,
+      contactPhone: contacts.phone,
+    })
+    .from(calls)
+    .leftJoin(contacts, eq(calls.contactId, contacts.id))
+    .where(and(eq(calls.businessId, business.id), gte(callLocal, todayStart)))
+    .orderBy(desc(calls.createdAt))
+    .limit(limit);
 }
 
 export type CallListItem = Pick<
