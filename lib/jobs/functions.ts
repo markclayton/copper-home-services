@@ -9,6 +9,7 @@ import {
   contacts,
   events,
   reviewRequests,
+  type Business,
 } from "@/lib/db/schema";
 import { sendSms } from "@/lib/telephony/twilio";
 import { createOutboundCall } from "@/lib/voice/vapi";
@@ -16,11 +17,19 @@ import { env } from "@/lib/env";
 import {
   inngest,
   type AppointmentBookedData,
+  type CallSummaryReadyData,
+  type EmergencyDetectedData,
   type LeadFormData,
   type QuoteFollowupData,
   type TenantProvisionNeededData,
 } from "./client";
 import { provisionTenant } from "@/lib/provisioning";
+import { notifyOwner } from "@/lib/notifications/owner";
+import {
+  renderAppointment,
+  renderCallSummary,
+  renderEmergency,
+} from "@/lib/notifications/templates";
 
 /**
  * Speed-to-lead: a website form POST → outbound AI call within ~60 s.
@@ -414,5 +423,187 @@ export const quoteFollowupReminder = inngest.createFunction(
     );
 
     return { ok: true };
+  },
+);
+
+/**
+ * appointment/booked → owner notification (SMS + email).
+ * Runs alongside reviewRequestFlow which listens to the same event.
+ */
+export const notifyOwnerAppointmentBooked = inngest.createFunction(
+  {
+    id: "notify-owner-appointment-booked",
+    triggers: [{ event: "appointment/booked" }],
+  },
+  async ({ event, step }) => {
+    const { businessId, appointmentId } = event.data as AppointmentBookedData;
+
+    const ctx = await step.run("load-context", async () => {
+      const [biz] = await db
+        .select()
+        .from(businesses)
+        .where(eq(businesses.id, businessId))
+        .limit(1);
+      if (!biz) return null;
+
+      const [appt] = await db
+        .select()
+        .from(appointments)
+        .where(eq(appointments.id, appointmentId))
+        .limit(1);
+      if (!appt) return null;
+
+      let contactName: string | null = null;
+      let contactPhone: string | null = null;
+      if (appt.contactId) {
+        const [c] = await db
+          .select({ name: contacts.name, phone: contacts.phone })
+          .from(contacts)
+          .where(eq(contacts.id, appt.contactId))
+          .limit(1);
+        contactName = c?.name ?? null;
+        contactPhone = c?.phone ?? null;
+      }
+      return { biz, appt, contactName, contactPhone };
+    });
+
+    if (!ctx) return { skipped: "missing business or appointment" };
+    const { biz, appt, contactName, contactPhone } = ctx;
+    const business = biz as unknown as Business;
+
+    const whenLocal = new Intl.DateTimeFormat("en-US", {
+      timeZone: business.timezone,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(new Date(appt.startAt));
+
+    const message = renderAppointment({
+      businessName: business.name,
+      customerName: contactName ?? "Caller",
+      customerPhone: contactPhone ?? "",
+      serviceType: appt.serviceType ?? "Service visit",
+      whenLocal,
+      notes: appt.notes ?? undefined,
+      callId: appt.callId ?? "",
+    });
+
+    const result = await step.run("notify", () =>
+      notifyOwner({ business, event: "appointment", message }),
+    );
+    return { ok: true, ...result };
+  },
+);
+
+/**
+ * emergency/detected → loud owner notification (SMS + email, with red banner).
+ * Fired from the Vapi tool handler when the AI calls send_emergency_alert.
+ */
+export const notifyOwnerEmergency = inngest.createFunction(
+  {
+    id: "notify-owner-emergency",
+    triggers: [{ event: "emergency/detected" }],
+    retries: 3,
+  },
+  async ({ event, step }) => {
+    const data = event.data as EmergencyDetectedData;
+
+    const business = await step.run("load-business", async () => {
+      const [b] = await db
+        .select()
+        .from(businesses)
+        .where(eq(businesses.id, data.businessId))
+        .limit(1);
+      return b ?? null;
+    });
+    if (!business) {
+      throw new NonRetriableError(`business ${data.businessId} not found`);
+    }
+
+    const businessRow = business as unknown as Business;
+    const message = renderEmergency({
+      businessName: businessRow.name,
+      summary: data.summary,
+      customerPhone: data.customerPhone,
+      address: data.address,
+    });
+
+    const result = await step.run("notify", () =>
+      notifyOwner({ business: businessRow, event: "emergency", message }),
+    );
+    return { ok: true, ...result };
+  },
+);
+
+/**
+ * call/summary-ready → owner notification with the LLM-generated ownerLine
+ * and full summary. Fired from the Vapi end-of-call-report webhook after
+ * the call row is summarized.
+ */
+export const notifyOwnerCallSummary = inngest.createFunction(
+  {
+    id: "notify-owner-call-summary",
+    triggers: [{ event: "call/summary-ready" }],
+  },
+  async ({ event, step }) => {
+    const { businessId, callId, ownerLine: ownerLineFromEvent } =
+      event.data as CallSummaryReadyData;
+
+    const ctx = await step.run("load-context", async () => {
+      const [biz] = await db
+        .select()
+        .from(businesses)
+        .where(eq(businesses.id, businessId))
+        .limit(1);
+      if (!biz) return null;
+
+      const [call] = await db
+        .select()
+        .from(calls)
+        .where(eq(calls.id, callId))
+        .limit(1);
+      if (!call) return null;
+
+      let contactName: string | null = null;
+      if (call.contactId) {
+        const [c] = await db
+          .select({ name: contacts.name })
+          .from(contacts)
+          .where(eq(contacts.id, call.contactId))
+          .limit(1);
+        contactName = c?.name ?? null;
+      }
+      return { biz, call, contactName };
+    });
+
+    if (!ctx) return { skipped: "missing business or call" };
+    const { biz, call, contactName } = ctx;
+    const business = biz as unknown as Business;
+
+    if (!call.summary) return { skipped: "no summary on call" };
+
+    const ownerLine =
+      ownerLineFromEvent ??
+      `Call from ${contactName ?? call.fromNumber ?? "unknown"}: ${call.summary.slice(0, 100)}`;
+
+    const message = renderCallSummary({
+      businessName: business.name,
+      customerName: contactName,
+      customerPhone: call.fromNumber ?? "",
+      ownerLine,
+      summary: call.summary,
+      isEmergency: call.isEmergency,
+      intent: call.intent,
+      outcome: call.outcome,
+      callId: call.id,
+    });
+
+    const result = await step.run("notify", () =>
+      notifyOwner({ business, event: "callSummary", message }),
+    );
+    return { ok: true, ...result };
   },
 );

@@ -95,6 +95,16 @@ export const contactSource = pgEnum("contact_source", [
 
 const businessOwnerCheck = sql`exists (select 1 from public.businesses b where b.id = business_id and b.owner_user_id = (select auth.uid()))`;
 
+export type NotifyEvent = "appointment" | "emergency" | "callSummary";
+export type NotifyChannel = { sms: boolean; email: boolean };
+export type NotifyChannels = Record<NotifyEvent, NotifyChannel>;
+
+export const DEFAULT_NOTIFY_CHANNELS: NotifyChannels = {
+  appointment: { sms: true, email: true },
+  emergency: { sms: true, email: true },
+  callSummary: { sms: true, email: false },
+};
+
 export const businesses = pgTable(
   "businesses",
   {
@@ -116,6 +126,11 @@ export const businesses = pgTable(
     vapiPhoneNumberId: text(),
     googleReviewUrl: text(),
     voiceId: text().notNull().default("Elliot"),
+    notifyChannels: jsonb().$type<NotifyChannels>().notNull().default({
+      appointment: { sms: true, email: true },
+      emergency: { sms: true, email: true },
+      callSummary: { sms: true, email: false },
+    }),
     stripeCustomerId: text(),
     stripeSubscriptionId: text(),
     stripeSubscriptionStatus: text(),

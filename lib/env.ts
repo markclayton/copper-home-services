@@ -44,6 +44,9 @@ const envSchema = z.object({
   INNGEST_EVENT_KEY: z.string().min(1).optional(),
   INNGEST_SIGNING_KEY: z.string().min(1).optional(),
 
+  RESEND_API_KEY: z.string().min(1).optional(),
+  NOTIFICATIONS_EMAIL_FROM: z.string().min(1).optional(),
+
   SENTRY_DSN: z.string().url().optional(),
 });
 

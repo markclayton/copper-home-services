@@ -36,6 +36,13 @@
       "when": 1778198400000,
       "tag": "0004_add_voice_id",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778803200000,
+      "tag": "0005_add_notify_channels",
+      "breakpoints": true
     }
   ]
 }

@@ -23,7 +23,13 @@ import {
 import { FaqsEditor, type FaqRow } from "@/components/onboarding/faqs-editor";
 import { VoicePicker } from "@/components/onboarding/voice-picker";
 import { DEFAULT_VOICE_ID } from "@/lib/voice/voices";
-import type { Business, KnowledgeBase } from "@/lib/db/schema";
+import {
+  DEFAULT_NOTIFY_CHANNELS,
+  type Business,
+  type KnowledgeBase,
+  type NotifyChannels,
+  type NotifyEvent,
+} from "@/lib/db/schema";
 
 const INITIAL: SaveSettingsState = { ok: false };
 
@@ -90,6 +96,20 @@ export function SettingsForm({
   const [voiceId, setVoiceId] = useState<string>(
     business.voiceId ?? DEFAULT_VOICE_ID,
   );
+  const [notifyChannels, setNotifyChannels] = useState<NotifyChannels>(
+    business.notifyChannels ?? DEFAULT_NOTIFY_CHANNELS,
+  );
+
+  function setChannel(
+    event: NotifyEvent,
+    channel: "sms" | "email",
+    value: boolean,
+  ) {
+    setNotifyChannels((prev) => ({
+      ...prev,
+      [event]: { ...prev[event], [channel]: value },
+    }));
+  }
 
   function updateDay(day: DayKey, patch: Partial<HoursDay>) {
     setHours((prev) => ({ ...prev, [day]: { ...prev[day], ...patch } }));
@@ -101,6 +121,11 @@ export function SettingsForm({
       <input type="hidden" name="services" value={JSON.stringify(services)} />
       <input type="hidden" name="faqs" value={JSON.stringify(faqs)} />
       <input type="hidden" name="voiceId" value={voiceId} />
+      <input
+        type="hidden"
+        name="notifyChannels"
+        value={JSON.stringify(notifyChannels)}
+      />
 
       <Card>
         <CardHeader>
@@ -244,6 +269,46 @@ export function SettingsForm({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Notifications</CardTitle>
+          <CardDescription>
+            How we ping you when something happens. SMS goes to{" "}
+            {business.ownerPhone}; email goes to {business.ownerEmail}.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-6 gap-y-3 items-center text-sm">
+            <div className="text-xs text-muted-foreground uppercase tracking-wide" />
+            <div className="text-xs text-muted-foreground uppercase tracking-wide text-center w-12">
+              SMS
+            </div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide text-center w-12">
+              Email
+            </div>
+
+            <NotifyRow
+              label="Booking confirmed"
+              hint="When the AI books an appointment."
+              channels={notifyChannels.appointment}
+              onChange={(c, v) => setChannel("appointment", c, v)}
+            />
+            <NotifyRow
+              label="Emergency call"
+              hint="When the AI flags an urgent situation."
+              channels={notifyChannels.emergency}
+              onChange={(c, v) => setChannel("emergency", c, v)}
+            />
+            <NotifyRow
+              label="Call summary"
+              hint="A short recap after every completed call."
+              channels={notifyChannels.callSummary}
+              onChange={(c, v) => setChannel("callSummary", c, v)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? "Saving…" : "Save settings"}
@@ -288,6 +353,41 @@ function FormField({
         placeholder={placeholder}
       />
     </div>
+  );
+}
+
+function NotifyRow({
+  label,
+  hint,
+  channels,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  channels: { sms: boolean; email: boolean };
+  onChange: (channel: "sms" | "email", value: boolean) => void;
+}) {
+  return (
+    <>
+      <div className="contents">
+        <div>
+          <div className="font-medium">{label}</div>
+          <div className="text-xs text-muted-foreground">{hint}</div>
+        </div>
+        <div className="flex justify-center w-12">
+          <Checkbox
+            checked={channels.sms}
+            onCheckedChange={(checked) => onChange("sms", !!checked)}
+          />
+        </div>
+        <div className="flex justify-center w-12">
+          <Checkbox
+            checked={channels.email}
+            onCheckedChange={(checked) => onChange("email", !!checked)}
+          />
+        </div>
+      </div>
+    </>
   );
 }
 

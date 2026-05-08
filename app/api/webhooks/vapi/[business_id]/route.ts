@@ -12,6 +12,7 @@ import { env } from "@/lib/env";
 import { summarizeCall } from "@/lib/ai/llm";
 import { handleToolCall, type ToolCtx } from "@/lib/voice/tool-handlers";
 import { sendSms } from "@/lib/telephony/twilio";
+import { inngest } from "@/lib/jobs/client";
 import type {
   VapiCallSummary,
   VapiEndOfCallReport,
@@ -260,7 +261,7 @@ async function handleEndOfCallReport(
       ? Math.round(message.durationSeconds)
       : null;
 
-  await db
+  const [upserted] = await db
     .insert(calls)
     .values({
       businessId: business.id,
@@ -303,22 +304,18 @@ async function handleEndOfCallReport(
           : null,
         endedAt: callPayload.endedAt ? new Date(callPayload.endedAt) : null,
       },
-    });
+    })
+    .returning({ id: calls.id });
 
-  if (ownerLine) {
-    try {
-      await sendSms({
+  if (ownerLine && upserted) {
+    await inngest.send({
+      name: "call/summary-ready",
+      data: {
         businessId: business.id,
-        to: business.ownerPhone,
-        body: ownerLine,
-      });
-    } catch (err) {
-      await db.insert(events).values({
-        businessId: business.id,
-        type: "owner_digest.failed",
-        payload: { message: err instanceof Error ? err.message : String(err) },
-      });
-    }
+        callId: upserted.id,
+        ownerLine,
+      },
+    });
   }
 
   await db.insert(events).values({

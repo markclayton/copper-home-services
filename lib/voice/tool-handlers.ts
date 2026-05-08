@@ -244,19 +244,18 @@ async function handleBookAppointment(
     ctx.business.timezone,
   );
 
-  await Promise.allSettled([
-    sendSms({
-      businessId: ctx.business.id,
-      contactId,
-      to: customerPhone,
-      body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply with questions.`,
-    }),
-    sendSms({
-      businessId: ctx.business.id,
-      to: ctx.business.ownerPhone,
-      body: `New booking: ${customerName} • ${serviceType} • ${friendlyTime} • ${customerPhone}`,
-    }),
-  ]);
+  // Customer confirmation stays sync — the AI promises a text on the call.
+  // Owner notification is fanned out by notifyOwnerAppointmentBooked which
+  // also listens for the appointment/booked event fired above.
+  await sendSms({
+    businessId: ctx.business.id,
+    contactId,
+    to: customerPhone,
+    body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply with questions.`,
+  }).catch(() => {
+    // Customer SMS failure shouldn't fail the booking; the Inngest owner
+    // notification will still fire so the owner sees the booking.
+  });
 
   return `Booked ${serviceType} for ${friendlyTime}. Confirmation text sent.`;
 }
@@ -295,17 +294,16 @@ async function handleEmergencyAlert(
     address,
   });
 
-  try {
-    await sendSms({
+  await inngest.send({
+    name: "emergency/detected",
+    data: {
       businessId: ctx.business.id,
-      to: ctx.business.ownerPhone,
-      body: `EMERGENCY @ ${ctx.business.name}: ${summary}. Caller ${customerPhone}. Address: ${address}.`,
-    });
-  } catch (err) {
-    await recordEvent(ctx.business.id, "tool.emergency_alert.sms_failed", {
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
+      summary,
+      customerPhone,
+      address,
+      vapiCallId: ctx.vapiCallId,
+    },
+  });
 
   return "Emergency logged. The owner has been alerted and will call back within minutes.";
 }

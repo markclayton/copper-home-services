@@ -33,6 +33,20 @@ export type TenantProvisionNeededData = {
   businessId: string;
 };
 
+export type EmergencyDetectedData = {
+  businessId: string;
+  summary: string;
+  customerPhone: string;
+  address: string;
+  vapiCallId?: string;
+};
+
+export type CallSummaryReadyData = {
+  businessId: string;
+  callId: string;
+  ownerLine?: string;
+};
+
 export const inngest = new Inngest({
   id: "copper-home-services",
 });
