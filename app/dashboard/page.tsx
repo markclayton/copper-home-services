@@ -12,6 +12,7 @@ import {
   CallOutcomeBadge,
   EmergencyBadge,
 } from "@/components/dashboard/badges";
+import { PhoneNumberCard } from "@/components/dashboard/phone-number-card";
 import {
   getTodayCalls,
   getTodayMetrics,
@@ -44,20 +45,7 @@ export default async function TodayPage() {
       </div>
 
       {business.twilioNumber && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Your AI receptionist number</CardDescription>
-            <CardTitle className="text-2xl font-mono tracking-tight">
-              {formatPhone(business.twilioNumber)}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">
-              Call this number to test your AI. Transcripts and bookings will
-              show up under Calls.
-            </p>
-          </CardContent>
-        </Card>
+        <PhoneNumberCard phone={business.twilioNumber} />
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
