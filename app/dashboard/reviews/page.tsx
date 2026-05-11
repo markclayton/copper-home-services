@@ -1,3 +1,4 @@
+import { Star } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -7,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ReviewStatusBadge } from "@/components/dashboard/badges";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { listReviewRequests, requireBusiness } from "@/lib/db/queries";
 import { formatPhone, formatRelative } from "@/lib/format";
 
@@ -36,9 +38,15 @@ export default async function ReviewsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No review requests yet. They auto-fire 2 hours after each appointment ends.
-        </p>
+        <EmptyState
+          icon={Star}
+          title="No review requests yet"
+          description={
+            business.googleReviewUrl
+              ? "After each completed appointment, we'll text the customer a review link. You'll see the status here."
+              : "Add your Google review URL in Settings to start sending review requests automatically after each appointment."
+          }
+        />
       ) : (
         <div className="rounded-md border">
           <Table>

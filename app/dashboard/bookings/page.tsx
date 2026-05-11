@@ -1,3 +1,4 @@
+import { CalendarDays } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -7,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { AppointmentStatusBadge } from "@/components/dashboard/badges";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { listUpcomingAppointments, requireBusiness } from "@/lib/db/queries";
 import { formatDateTime, formatPhone } from "@/lib/format";
 
@@ -24,7 +26,11 @@ export default async function BookingsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No upcoming bookings.</p>
+        <EmptyState
+          icon={CalendarDays}
+          title="Nothing on the calendar yet"
+          description="When your AI books an appointment, it appears here automatically. You can also see the call it came from on the Calls page."
+        />
       ) : (
         <div className="rounded-md border">
           <Table>

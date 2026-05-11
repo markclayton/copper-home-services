@@ -24,6 +24,7 @@ const envSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
   TWILIO_DEFAULT_FROM_NUMBER: z.string().min(1).optional(),
   TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
+  SMS_MONTHLY_CAP_PER_BUSINESS: z.coerce.number().int().positive().optional(),
 
   // Demo mode: when both are set, provisionTenant reuses these for every new
   // tenant instead of buying a fresh Twilio number + registering with Vapi.

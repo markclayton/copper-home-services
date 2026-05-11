@@ -1,3 +1,4 @@
+import { MessageSquareText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -7,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { listMessages, requireBusiness } from "@/lib/db/queries";
 import { formatPhone, formatRelative } from "@/lib/format";
 import type { Message } from "@/lib/db/schema";
@@ -28,11 +30,11 @@ export default async function MessagesPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No messages yet. Outbound texts (missed-call text-backs, booking
-          confirmations, owner alerts, review requests) and inbound replies
-          will appear here.
-        </p>
+        <EmptyState
+          icon={MessageSquareText}
+          title="No messages yet"
+          description="Every text we send on your behalf — missed-call replies, booking confirmations, review requests — shows up here, along with any customer replies."
+        />
       ) : (
         <div className="rounded-md border">
           <Table>

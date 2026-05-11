@@ -168,7 +168,10 @@ export function SettingsForm({
           {DAYS.map(({ key, label }) => {
             const day = hours[key];
             return (
-              <div key={key} className="grid grid-cols-[60px_1fr_1fr_120px] gap-3 items-center">
+              <div
+                key={key}
+                className="grid grid-cols-[55px_1fr_1fr] sm:grid-cols-[60px_1fr_1fr_120px] gap-2 sm:gap-3 items-center"
+              >
                 <Label className="font-medium">{label}</Label>
                 <Input
                   type="time"
@@ -182,7 +185,7 @@ export function SettingsForm({
                   onChange={(e) => updateDay(key, { close: e.target.value })}
                   disabled={day.closed}
                 />
-                <label className="flex items-center gap-2 text-sm">
+                <label className="col-span-3 sm:col-span-1 flex items-center gap-2 text-sm pl-[55px] sm:pl-0">
                   <Checkbox
                     checked={!!day.closed}
                     onCheckedChange={(checked) =>
