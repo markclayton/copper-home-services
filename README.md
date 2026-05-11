@@ -234,6 +234,14 @@ Vapi rotates their voice catalog and uses dated model IDs. If `bun provision` or
 ### Empty values in `.env.local` are not the same as unset
 `VAPI_API_KEY=` (empty string) is parsed as `""`, not `undefined`. The env loader at `lib/env.ts` cleans empty strings to `undefined` before validating so optional integration keys aren't rejected — keep this in mind if you add new env vars.
 
+### Production env guards refuse to boot on misconfiguration
+When `NODE_ENV=production`, `lib/env.ts` runs cross-field validation that throws on:
+- `DEMO_TWILIO_NUMBER` or `DEMO_VAPI_PHONE_NUMBER_ID` being set (would route every customer to a shared demo number)
+- `VAPI_WEBHOOK_SECRET` unset (allows webhook spoofing)
+- `INTERNAL_WEBHOOK_SECRET` unset (leaves lead webhook unauthenticated)
+
+Symptom: Vercel build succeeds but runtime returns 500 with `Invalid production environment: ...` in the logs. Fix the env vars in Vercel and redeploy. This is intentional — it's the cheapest mistake to make and the most expensive to ship past.
+
 ### Provisioning script holds the DB open
 The `postgres` driver keeps its pool alive after the script completes, so scripts need explicit `process.exit(0)` on success. Both `seed-test-tenant.ts` and `provision-tenant.ts` do this. Any new long-running script should too, or it'll appear to hang.
 
@@ -268,6 +276,49 @@ When both are set, `provisionTenant`:
 
 ## Production deployment
 
+### Pre-flight checklist
+
+Run through this before flipping DNS at a new domain. Order matters — the env guards refuse to boot the server if any of the first three are missing or wrong.
+
+**Boot-blocking env (required for prod, app refuses to start otherwise):**
+- [ ] `VAPI_WEBHOOK_SECRET` set, and the same value pasted into the Vapi assistant's webhook config
+- [ ] `INTERNAL_WEBHOOK_SECRET` set (32+ random chars)
+- [ ] `DEMO_TWILIO_NUMBER` and `DEMO_VAPI_PHONE_NUMBER_ID` **unset** in the Production scope
+
+**Standard env:**
+- [ ] `APP_URL` set to the prod origin (no trailing slash)
+- [ ] All Supabase + Stripe + Twilio + Vapi + OpenRouter + Cal.com + Inngest keys set
+- [ ] `RESEND_API_KEY` + `NOTIFICATIONS_EMAIL_FROM` (or leave unset — email cleanly no-ops)
+- [ ] `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (build-time only)
+- [ ] `TWILIO_MESSAGING_SERVICE_SID` once A2P 10DLC is approved
+
+**Database:**
+- [ ] `bun db:migrate` against the prod DB — applies every migration including 0006 (`webhook_events` table required by webhook idempotency)
+
+**Provider URLs (re-point from ngrok / staging):**
+- [ ] Stripe webhook endpoint → `https://<prod-domain>/api/webhooks/stripe`
+- [ ] Supabase Auth → Site URL + Redirect URLs allowlist updated to prod domain
+- [ ] Inngest Cloud → serve URL `https://<prod-domain>/api/inngest`, then click Sync
+- [ ] For any tenant whose Vapi assistant was provisioned against an ngrok URL: re-run `bun provision <id>` to redeploy with prod URLs
+
+**Smoke test after deploy:**
+- [ ] `/` loads with the new landing page; favicon shows the copper "C"
+- [ ] Sign up flow end-to-end in incognito with Stripe test card `4242 4242 4242 4242`
+- [ ] Place a real call → AI answers → book an appointment → confirm owner SMS + email arrive
+- [ ] Throw a deliberate error (or hit a 404) → confirm Sentry receives it
+- [ ] POST 13 leads in one hour to `/api/webhooks/lead/<business_id>` → the 13th returns `429` with `Retry-After: 600`
+- [ ] Replay any Stripe event twice from the dashboard → second response includes `{duplicate: true}` and doesn't mutate state again
+
+### Production environment guards
+
+The env loader at `lib/env.ts` runs cross-field validation when `NODE_ENV=production`. The server will throw at startup and refuse to serve requests if any of the following are missed — by design, not by accident:
+
+- `DEMO_TWILIO_NUMBER` or `DEMO_VAPI_PHONE_NUMBER_ID` set → would route every new customer to a shared demo number. Treated as fatal.
+- `VAPI_WEBHOOK_SECRET` unset → any caller could POST fake end-of-call reports for any tenant.
+- `INTERNAL_WEBHOOK_SECRET` unset → the lead webhook would be unauthenticated.
+
+Boot failures show up in Vercel build / runtime logs as `Invalid production environment: ...`. Fix the env in Vercel and redeploy.
+
 ### Supabase
 
 - Create project. Note the URL, publishable key, service role key, and direct DB URL.
@@ -291,8 +342,8 @@ When both are set, `provisionTenant`:
 ### Vapi
 
 - Create account, copy API key into `VAPI_API_KEY`.
-- Optionally set a webhook secret (`VAPI_WEBHOOK_SECRET`) — when set, the webhook handler enforces `x-vapi-secret`.
-- Assistants are created automatically by `provisionTenant`. No manual config required.
+- **Required in production:** `VAPI_WEBHOOK_SECRET` (any 32+ char random string). Paste the same value into the assistant's webhook config under Vapi → Assistants → Server URL → Headers (`x-vapi-secret`). Without it the env guard refuses to boot the server.
+- Assistants are created automatically by `provisionTenant`. No manual config required per tenant.
 
 ### Twilio
 
@@ -300,6 +351,7 @@ When both are set, `provisionTenant`:
 - Set `TWILIO_DEFAULT_FROM_NUMBER` to the Twilio number you want SMS sent *from*. For Tenant Zero, that's the number `provisionTenant` bought. Once you have multiple tenants, you'd switch to per-tenant from-numbers in code (currently a global default).
 - Set `TWILIO_MESSAGING_SERVICE_SID` once your A2P 10DLC Brand + Campaign are approved. `provisionTenant` will auto-attach every newly-bought number to this service so SMS clears carrier filtering. Find it at Twilio Console → Messaging → Services → your service → Service SID (`MGxxxx`).
 - `provisionTenant` buys numbers and configures their SMS webhook automatically. Vapi configures the voice webhook when the number is registered.
+- **SMS cost ceiling**: every outbound `sendSms` checks a rolling 30-day count of outbound messages per business. Default cap is 1000 messages / 30 days; override with `SMS_MONTHLY_CAP_PER_BUSINESS`. Hitting the cap throws `SmsQuotaExceededError` and logs an `sms.quota_exceeded` event — protects you from runaway loops draining Twilio credit. Customer-facing booking SMS catches failures so a quota hit never fails a live call.
 
 #### A2P 10DLC registration (required for US SMS delivery)
 
@@ -359,6 +411,21 @@ Optional. Email notifications use Resend; if unconfigured the email channel clea
 
 - API key into `OPENROUTER_API_KEY`. Used only for offline call summarization via the OpenAI-compatible endpoint. Vapi runs the in-call model itself with credentials configured directly in the Vapi dashboard.
 - Default model is `anthropic/claude-sonnet-4.5`. Override by editing `SUMMARY_MODEL` in `lib/ai/llm.ts` — any OpenRouter model id works (e.g. `openai/gpt-4o-mini`, `anthropic/claude-haiku-4.5`).
+
+### Sentry (error tracking)
+
+Optional but strongly recommended for production. When unconfigured, all Sentry calls no-op gracefully.
+
+- Create a Next.js project at <https://sentry.io>. Note the DSN under Project Settings → Client Keys.
+- **Runtime env (Vercel Production scope):**
+  - `SENTRY_DSN` — server-side capture
+  - `NEXT_PUBLIC_SENTRY_DSN` — browser capture (usually the same DSN)
+- **Build-time env (Vercel Production scope, only used during `next build`):**
+  - `SENTRY_ORG` — org slug
+  - `SENTRY_PROJECT` — project slug (e.g. `copper`)
+  - `SENTRY_AUTH_TOKEN` — create at sentry.io/settings/account/api/auth-tokens with scopes `project:read`, `project:releases`, `org:read`. Used to upload source maps so stack traces are readable.
+- The instrumentation lives in `instrumentation.ts` (server + edge) and `instrumentation-client.ts` (browser). Each release is tagged with `VERCEL_GIT_COMMIT_SHA` so issues map to a commit.
+- Use `reportError(err, { businessId, tags, extra })` from `lib/observability.ts` when you want to add context to a captured exception. Unhandled errors are captured automatically by the Next.js integration.
 
 ---
 
@@ -437,6 +504,15 @@ Optional. Email notifications use Resend; if unconfigured the email channel clea
 - [x] Customer portal for self-service card / invoice management
 - [x] Webhook handles checkout completion, subscription lifecycle, invoice events
 
+### Production hardening
+- [x] **Webhook idempotency** — `webhook_events` table with unique `(provider, event_id)`. Stripe webhook dedupes by event id; all three owner-notification Inngest functions dedupe by appointment/call/vapiCallId so Vapi resends and Inngest retries can't double-fire.
+- [x] **Lead webhook signature + rate limit** — `INTERNAL_WEBHOOK_SECRET` required in prod; per-business cap of 12 leads/hour returns `429` with `Retry-After`.
+- [x] **Production env guards** — server refuses to start if `DEMO_*` routing vars are set, if `VAPI_WEBHOOK_SECRET` is missing, or if `INTERNAL_WEBHOOK_SECRET` is missing.
+- [x] **SMS cost ceiling** — `sendSms` enforces a per-business rolling 30-day cap (default 1000, env-tunable); throws `SmsQuotaExceededError` and logs `sms.quota_exceeded` event.
+- [x] **Sentry** — server + client + edge runtimes wired via `instrumentation.ts` + `instrumentation-client.ts`. Tags every event with deploy SHA. No-op without `SENTRY_DSN`. `reportError()` helper in `lib/observability.ts` for tagged manual capture.
+- [x] **Onboarding error recovery** — `/onboard/setup/[id]` poller times out at 4 minutes with a "this is taking longer than usual" support fallback instead of spinning forever.
+- [x] **Owner feedback loop** — "AI got this wrong" button on every call detail page records `call.flagged_by_owner` events with the owner's note.
+
 ### Schema migrations
 - [x] `0000_init.sql` — initial 8 tables + RLS
 - [x] `0001_add_vapi_phone_and_google_review.sql`
@@ -444,6 +520,7 @@ Optional. Email notifications use Resend; if unconfigured the email channel clea
 - [x] `0003_add_onboarding_step.sql`
 - [x] `0004_add_voice_id.sql` — picker-selected Vapi voice per tenant
 - [x] `0005_add_notify_channels.sql` — per-event SMS/email toggles
+- [x] `0006_add_webhook_events.sql` — idempotency log for inbound webhooks (Stripe dedupe + notification fan-out dedupe)
 
 ---
 
