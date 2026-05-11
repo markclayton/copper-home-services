@@ -30,9 +30,15 @@ export function BusinessStepForm({ business }: { business: Business }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <h1 className="text-2xl font-semibold">Tell us about your business</h1>
+      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground font-medium">
+        Welcome to Copper
+      </div>
+      <h1 className="text-2xl font-semibold mt-1">
+        Let&apos;s set up your AI receptionist.
+      </h1>
       <p className="text-sm text-muted-foreground mb-4">
-        The basics. We&apos;ll dive into services and hours next.
+        Takes about five minutes. We&apos;ll start with the basics, then your
+        services, hours, and voice. You can come back and edit anything later.
       </p>
 
       <form action={formAction} className="flex flex-col gap-5">
