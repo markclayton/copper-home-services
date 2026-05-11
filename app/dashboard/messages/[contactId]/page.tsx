@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertCircle, ArrowLeft } from "lucide-react";
+import { AlertCircle, ArrowLeft, Pause } from "lucide-react";
+import { PauseAiToggle } from "@/components/dashboard/pause-ai-toggle";
+import { ReplyComposer } from "@/components/dashboard/reply-composer";
 import { getConversation, requireBusiness } from "@/lib/db/queries";
 import { formatDateTime, formatPhone, formatRelative } from "@/lib/format";
 
@@ -29,11 +31,21 @@ export default async function ConversationDetailPage({
         </Link>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-semibold">{contact.name ?? "Unknown"}</h1>
-        <p className="text-sm text-muted-foreground font-mono">
-          {formatPhone(contact.phone)}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold truncate">
+            {contact.name ?? "Unknown"}
+          </h1>
+          <p className="text-sm text-muted-foreground font-mono">
+            {formatPhone(contact.phone)}
+          </p>
+          {contact.aiPaused && (
+            <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground font-medium mt-2">
+              <Pause size={11} /> AI paused for this contact
+            </div>
+          )}
+        </div>
+        <PauseAiToggle contactId={contact.id} paused={contact.aiPaused} />
       </div>
 
       {flagReasons.length > 0 && (
@@ -68,6 +80,7 @@ export default async function ConversationDetailPage({
             <MessageBubble
               key={m.id}
               direction={m.direction}
+              sender={m.sender}
               body={m.body}
               at={m.sentAt ?? m.createdAt}
               timezone={business.timezone}
@@ -75,42 +88,62 @@ export default async function ConversationDetailPage({
           ))
         )}
       </div>
+
+      <div className="pt-2">
+        <ReplyComposer contactId={contact.id} aiPaused={contact.aiPaused} />
+      </div>
     </div>
   );
 }
 
 function MessageBubble({
   direction,
+  sender,
   body,
   at,
   timezone,
 }: {
   direction: "inbound" | "outbound";
+  sender: "customer" | "ai" | "owner";
   body: string;
   at: Date;
   timezone: string;
 }) {
   const isInbound = direction === "inbound";
+  // Owner replies stand apart from AI replies — both are outbound but visually
+  // distinct so the owner can scan a thread and see which texts they sent
+  // personally vs which the AI handled.
+  const bubbleClasses = isInbound
+    ? "bg-muted text-foreground rounded-bl-sm"
+    : sender === "owner"
+      ? "bg-foreground text-background rounded-br-sm"
+      : "bg-primary text-primary-foreground rounded-br-sm";
+
   return (
-    <div className={`flex ${isInbound ? "justify-start" : "justify-end"}`}>
-      <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-          isInbound
-            ? "bg-muted text-foreground rounded-bl-sm"
-            : "bg-primary text-primary-foreground rounded-br-sm"
-        }`}
-      >
+    <div
+      className={`flex flex-col ${isInbound ? "items-start" : "items-end"} gap-1`}
+    >
+      <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${bubbleClasses}`}>
         <div className="text-sm whitespace-pre-wrap leading-relaxed">
           {body}
         </div>
         <div
           className={`text-[10px] mt-1.5 ${
-            isInbound ? "text-muted-foreground" : "text-primary-foreground/70"
+            isInbound
+              ? "text-muted-foreground"
+              : sender === "owner"
+                ? "text-background/70"
+                : "text-primary-foreground/70"
           }`}
         >
           {formatDateTime(at, timezone)}
         </div>
       </div>
+      {!isInbound && (
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium pr-2">
+          {sender === "owner" ? "You" : "AI"}
+        </div>
+      )}
     </div>
   );
 }

@@ -43,6 +43,9 @@ type SendSmsArgs = {
   to: string;
   body: string;
   from?: string;
+  /** Who sent this message — defaults to "ai" since most outbound is automated.
+   * Set to "owner" for manual replies typed in the dashboard. */
+  sender?: "ai" | "owner";
   /** Bypass the monthly quota guard. Reserved for owner-targeted alerts where
    * skipping is worse than overspending. Use sparingly. */
   bypassQuota?: boolean;
@@ -75,6 +78,7 @@ export async function sendSms({
   to,
   body,
   from,
+  sender = "ai",
   bypassQuota,
 }: SendSmsArgs) {
   if (!bypassQuota) {
@@ -107,6 +111,7 @@ export async function sendSms({
       businessId,
       contactId: contactId ?? null,
       direction: "outbound",
+      sender,
       body,
       twilioSid: sent.sid,
       status: mapTwilioStatus(sent.status),

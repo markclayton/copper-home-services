@@ -101,6 +101,7 @@ export async function POST(
       businessId: business.id,
       contactId,
       direction: "inbound",
+      sender: "customer",
       body,
       twilioSid: messageSid,
       status: "delivered",

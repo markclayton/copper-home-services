@@ -63,6 +63,12 @@ export const messageDirection = pgEnum("message_direction", [
   "outbound",
 ]);
 
+export const messageSender = pgEnum("message_sender", [
+  "customer",
+  "ai",
+  "owner",
+]);
+
 export const messageStatus = pgEnum("message_status", [
   "queued",
   "sent",
@@ -203,6 +209,7 @@ export const contacts = pgTable(
     address: text(),
     source: contactSource(),
     tags: text().array(),
+    aiPaused: boolean().notNull().default(false),
     firstSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
@@ -259,6 +266,7 @@ export const messages = pgTable(
       .references(() => businesses.id, { onDelete: "cascade" }),
     contactId: uuid().references(() => contacts.id, { onDelete: "set null" }),
     direction: messageDirection().notNull(),
+    sender: messageSender().notNull().default("ai"),
     body: text().notNull(),
     twilioSid: text().unique(),
     status: messageStatus().notNull().default("queued"),

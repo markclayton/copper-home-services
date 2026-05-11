@@ -466,6 +466,9 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] LLM-driven owner escalation: when the AI flags a thread (emergency, callback request, cancellation, unanswerable question), an `sms.flagged_for_owner` event is logged and a best-effort owner SMS fires with a snippet of the customer message and the flag reason.
 - [x] Per-business Inngest concurrency limit of 5 so a single tenant's text burst doesn't starve others.
 - [x] Idempotency on `twilioSid` via `webhook_events` — Inngest retries and Twilio resends can't double-reply.
+- [x] **Owner reply from dashboard** — chat-style composer on every conversation page sends SMS as the owner (sender=`owner`), not the AI. Quota-checked like any other SMS.
+- [x] **Pause AI per contact** — toggle on the conversation page flips `contacts.ai_paused`. While paused, the AI handler logs `sms.ai_paused_skipped` and returns without generating a reply. Inbound messages still persist; the owner can reply manually.
+- [x] **AI vs owner distinction in transcripts** — outbound bubbles render copper for AI replies, dark for owner replies, with a small "AI" / "You" label underneath. Conversation list shows the latest sender too.
 
 ### Reviews (Flow 3)
 - [x] Inngest `reviewRequestFlow` triggered by `appointment/booked`
@@ -526,6 +529,7 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] `0004_add_voice_id.sql` — picker-selected Vapi voice per tenant
 - [x] `0005_add_notify_channels.sql` — per-event SMS/email toggles
 - [x] `0006_add_webhook_events.sql` — idempotency log for inbound webhooks (Stripe dedupe + notification fan-out dedupe)
+- [x] `0007_add_message_sender_and_pause.sql` — `messages.sender` enum (`customer` / `ai` / `owner`) and `contacts.ai_paused` boolean
 
 ---
 

@@ -1,5 +1,13 @@
 import Link from "next/link";
-import { ArrowRight, Calendar, Phone, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Calendar,
+  MessageSquareText,
+  Phone,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -15,6 +23,7 @@ import {
 import { PhoneNumberCard } from "@/components/dashboard/phone-number-card";
 import {
   getTodayCalls,
+  getTodayConversations,
   getTodayMetrics,
   listUpcomingAppointments,
   requireBusiness,
@@ -23,10 +32,11 @@ import { formatPhone, formatRelative, formatTime } from "@/lib/format";
 
 export default async function TodayPage() {
   const { business } = await requireBusiness();
-  const [metrics, todayCalls, upcoming] = await Promise.all([
+  const [metrics, todayCalls, upcoming, todayTexts] = await Promise.all([
     getTodayMetrics(business),
-    getTodayCalls(business, 8),
+    getTodayCalls(business, 6),
     listUpcomingAppointments(business.id, 5),
+    getTodayConversations(business, 5),
   ]);
 
   return (
@@ -76,8 +86,8 @@ export default async function TodayPage() {
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-5">
-        <Card className="md:col-span-2">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
@@ -123,7 +133,7 @@ export default async function TodayPage() {
           </CardContent>
         </Card>
 
-        <Card className="md:col-span-3">
+        <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
@@ -182,10 +192,80 @@ export default async function TodayPage() {
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageSquareText
+                  size={16}
+                  className="text-muted-foreground"
+                />
+                Today&apos;s texts
+              </CardTitle>
+              <Link
+                href="/dashboard/messages"
+                className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+              >
+                All <ArrowRight size={12} />
+              </Link>
+            </div>
+            <CardDescription>
+              Conversations with active texts today.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {todayTexts.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2">
+                No texts today. Inbound replies and customer questions show
+                up here.
+              </p>
+            ) : (
+              <ul className="flex flex-col divide-y">
+                {todayTexts.map((c) => {
+                  const href = c.contactId
+                    ? `/dashboard/messages/${c.contactId}`
+                    : "/dashboard/messages";
+                  return (
+                    <li key={c.key} className="py-3 first:pt-0 last:pb-0">
+                      <Link href={href} className="block group">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-medium text-sm truncate group-hover:underline">
+                              {c.contactName ?? formatPhone(c.contactPhone)}
+                            </span>
+                            {c.flagged && (
+                              <AlertCircle
+                                size={12}
+                                className="text-primary shrink-0"
+                              />
+                            )}
+                            {c.lastSender === "owner" && (
+                              <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+                                you
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground shrink-0">
+                            {formatRelative(c.lastAt)}
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                          {c.lastBody}
+                        </p>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
+
 
 function MetricCard({
   title,

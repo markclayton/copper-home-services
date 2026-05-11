@@ -178,6 +178,115 @@ export async function getTodayCalls(
     .limit(limit);
 }
 
+export type TodayConversation = {
+  contactId: string | null;
+  key: string;
+  contactName: string | null;
+  contactPhone: string | null;
+  lastBody: string;
+  lastDirection: "inbound" | "outbound";
+  lastSender: "customer" | "ai" | "owner";
+  lastAt: Date;
+  inboundCount: number;
+  flagged: boolean;
+};
+
+/**
+ * Conversations that had inbound or outbound activity today, capped at
+ * `limit`. Today is scoped to the business's timezone.
+ */
+export async function getTodayConversations(
+  business: Business,
+  limit = 5,
+): Promise<TodayConversation[]> {
+  const tz = business.timezone;
+  const todayStart = sql`date_trunc('day', now() AT TIME ZONE ${tz})`;
+  const msgLocal = sql`(${messages.createdAt} AT TIME ZONE 'UTC') AT TIME ZONE ${tz}`;
+
+  const rows = await db
+    .select({
+      id: messages.id,
+      contactId: messages.contactId,
+      direction: messages.direction,
+      sender: messages.sender,
+      body: messages.body,
+      sentAt: messages.sentAt,
+      createdAt: messages.createdAt,
+      contactName: contacts.name,
+      contactPhone: contacts.phone,
+      fromNumber: messages.fromNumber,
+      toNumber: messages.toNumber,
+    })
+    .from(messages)
+    .leftJoin(contacts, eq(messages.contactId, contacts.id))
+    .where(
+      and(
+        eq(messages.businessId, business.id),
+        gte(msgLocal, todayStart),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(limit * 12);
+
+  const byKey = new Map<string, TodayConversation>();
+  for (const r of rows) {
+    const key =
+      r.contactId ??
+      (r.direction === "inbound" ? r.fromNumber : r.toNumber) ??
+      r.id;
+    const existing = byKey.get(key);
+    const at = r.sentAt ?? r.createdAt;
+    if (!existing) {
+      byKey.set(key, {
+        contactId: r.contactId,
+        key,
+        contactName: r.contactName,
+        contactPhone:
+          r.contactPhone ??
+          (r.direction === "inbound" ? r.fromNumber : r.toNumber),
+        lastBody: r.body,
+        lastDirection: r.direction,
+        lastSender: r.sender,
+        lastAt: at,
+        inboundCount: r.direction === "inbound" ? 1 : 0,
+        flagged: false,
+      });
+    } else {
+      if (r.direction === "inbound") existing.inboundCount += 1;
+      if (at > existing.lastAt) {
+        existing.lastBody = r.body;
+        existing.lastDirection = r.direction;
+        existing.lastSender = r.sender;
+        existing.lastAt = at;
+      }
+    }
+  }
+
+  // Annotate today's flagged conversations.
+  const flaggedRows = await db
+    .select({
+      phone: sql<string>`${events.payload}->>'fromNumber'`,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.businessId, business.id),
+        eq(events.type, "sms.flagged_for_owner"),
+        gte(events.createdAt, sql`now() - interval '24 hours'`),
+      ),
+    );
+  const flaggedPhones = new Set(
+    flaggedRows.map((f) => f.phone).filter((p): p is string => !!p),
+  );
+  for (const c of byKey.values()) {
+    if (c.contactPhone && flaggedPhones.has(c.contactPhone)) c.flagged = true;
+  }
+
+  const result = Array.from(byKey.values());
+  result.sort((a, b) => b.lastAt.getTime() - a.lastAt.getTime());
+  return result.slice(0, limit);
+}
+
 export type CallListItem = Pick<
   Call,
   | "id"
@@ -347,6 +456,7 @@ export async function listMessages(
       businessId: messages.businessId,
       contactId: messages.contactId,
       direction: messages.direction,
+      sender: messages.sender,
       body: messages.body,
       twilioSid: messages.twilioSid,
       status: messages.status,
@@ -372,9 +482,11 @@ export type ConversationListItem = {
   contactPhone: string | null;
   lastBody: string;
   lastDirection: "inbound" | "outbound";
+  lastSender: "customer" | "ai" | "owner";
   lastAt: Date;
   messageCount: number;
   flagged: boolean;
+  aiPaused: boolean;
 };
 
 /**
@@ -393,11 +505,13 @@ export async function listConversations(
       id: messages.id,
       contactId: messages.contactId,
       direction: messages.direction,
+      sender: messages.sender,
       body: messages.body,
       sentAt: messages.sentAt,
       createdAt: messages.createdAt,
       contactName: contacts.name,
       contactPhone: contacts.phone,
+      contactAiPaused: contacts.aiPaused,
       fromNumber: messages.fromNumber,
       toNumber: messages.toNumber,
     })
@@ -426,15 +540,18 @@ export async function listConversations(
           (r.direction === "inbound" ? r.fromNumber : r.toNumber),
         lastBody: r.body,
         lastDirection: r.direction,
+        lastSender: r.sender,
         lastAt: at,
         messageCount: 1,
         flagged: false,
+        aiPaused: !!r.contactAiPaused,
       });
     } else {
       existing.messageCount += 1;
       if (at > existing.lastAt) {
         existing.lastBody = r.body;
         existing.lastDirection = r.direction;
+        existing.lastSender = r.sender;
         existing.lastAt = at;
       }
     }
@@ -473,12 +590,22 @@ export async function getConversation(
   businessId: string,
   contactId: string,
 ): Promise<{
-  contact: { id: string; name: string | null; phone: string | null } | null;
+  contact: {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    aiPaused: boolean;
+  } | null;
   messages: MessageListItem[];
   flagReasons: { reason: string; at: Date; customerMessage: string }[];
 }> {
   const [contact] = await db
-    .select({ id: contacts.id, name: contacts.name, phone: contacts.phone })
+    .select({
+      id: contacts.id,
+      name: contacts.name,
+      phone: contacts.phone,
+      aiPaused: contacts.aiPaused,
+    })
     .from(contacts)
     .where(
       and(eq(contacts.businessId, businessId), eq(contacts.id, contactId)),
@@ -494,6 +621,7 @@ export async function getConversation(
       businessId: messages.businessId,
       contactId: messages.contactId,
       direction: messages.direction,
+      sender: messages.sender,
       body: messages.body,
       twilioSid: messages.twilioSid,
       status: messages.status,

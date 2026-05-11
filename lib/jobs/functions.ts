@@ -722,6 +722,21 @@ export const respondToInboundSms = inngest.createFunction(
     const business = ctx.biz as unknown as Business;
     const kb = (ctx.kb ?? null) as unknown as KnowledgeBase | null;
 
+    if (ctx.contact?.aiPaused) {
+      await step.run("log-paused", async () => {
+        await db.insert(events).values({
+          businessId: data.businessId,
+          type: "sms.ai_paused_skipped",
+          payload: {
+            messageId: data.messageId,
+            fromNumber: data.fromNumber,
+            customerMessage: data.body,
+          },
+        });
+      });
+      return { skipped: "ai paused for this contact" };
+    }
+
     const reply = await step.run("generate-reply", () =>
       generateSmsReply({
         business,

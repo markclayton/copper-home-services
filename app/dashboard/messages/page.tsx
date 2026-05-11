@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, MessageSquareText } from "lucide-react";
+import { AlertCircle, MessageSquareText, Pause } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { listConversations, requireBusiness } from "@/lib/db/queries";
 import { formatPhone, formatRelative } from "@/lib/format";
@@ -71,10 +71,19 @@ function ConversationRow({
               <AlertCircle size={10} /> Needs you
             </span>
           )}
+          {c.aiPaused && (
+            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+              <Pause size={10} /> AI paused
+            </span>
+          )}
         </div>
         <div className="text-sm text-muted-foreground truncate">
           <span className="text-xs uppercase tracking-wider mr-1.5">
-            {c.lastDirection === "inbound" ? "←" : "→"}
+            {c.lastDirection === "inbound"
+              ? "←"
+              : c.lastSender === "owner"
+                ? "→ You"
+                : "→ AI"}
           </span>
           {c.lastBody}
         </div>
