@@ -25,6 +25,7 @@ Built against [`flagship-v1-prd.md`](./flagship-v1-prd.md). V1 success criteria:
 | Background jobs | Inngest |
 | LLM (summaries) | OpenRouter via OpenAI SDK (default: `anthropic/claude-sonnet-4.5`); Vapi handles in-call model separately |
 | Payments | Stripe (Checkout + customer portal) |
+| Owner email | Resend (optional — owner notifications no-op if unconfigured) |
 | Hosting | Vercel + Supabase + Inngest Cloud |
 | Errors | Sentry (planned, not yet wired) |
 | Logs | Vercel runtime logs + in-app `events` table |
@@ -223,8 +224,8 @@ To avoid the dance entirely, claim a static domain in the ngrok dashboard (free 
 The signup form's `emailRedirectTo` must be in Supabase's allowlist. Set both **Site URL** and **Redirect URLs** in Supabase → Authentication → URL Configuration to your ngrok URL (`https://<tunnel>.ngrok-free.app` and `https://<tunnel>.ngrok-free.app/**`). Update each time the ngrok URL changes (or use a static domain).
 
 ### Vapi voices and model IDs change
-Vapi rotates their voice catalog and uses dated model IDs. If `bun provision` fails with `voice not supported` or `model.model must be one of...`, look at `lib/voice/deploy.ts` and swap to a current value:
-- Voices that work today: `Elliot`, `Kylie`, `Rohan`, `Hana`, `Lily`. Authoritative list: <https://docs.vapi.ai/providers/voice/vapi-voices>
+Vapi rotates their voice catalog and uses dated model IDs. If `bun provision` or a settings save fails with `voice is part of a legacy voice set` or `model.model must be one of...`, look at `lib/voice/voices.ts` (for the owner-facing picker) and `lib/voice/deploy.ts` (for the model id) and swap to a current value:
+- Voices currently offered in the picker: `Elliot`, `Kai`, `Nico`, `Clara`, `Emma`, `Savannah`. The previous set (Spencer, Neha, Harry, Cole, Paige, Hana, Lily, Kylie) was retired on March 1, 2026. Authoritative list: <https://docs.vapi.ai/providers/voice/vapi-voices>
 - Models need the full dated form: `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, etc. The error message lists every accepted value if you get it wrong.
 
 ### Twilio area codes can be out of stock
@@ -284,7 +285,7 @@ When both are set, `provisionTenant`:
 
 - Create app, link to GitHub repo or use the deploy URL.
 - Set the serve URL to `https://<your-domain>/api/inngest`.
-- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`.
+- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`, `tenantProvisioning`, `notifyOwnerAppointmentBooked`, `notifyOwnerEmergency`, `notifyOwnerCallSummary`.
 - Add `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` to Vercel env.
 
 ### Vapi
@@ -345,6 +346,15 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - Add a webhook endpoint pointing at `https://<your-domain>/api/webhooks/stripe`. Subscribe to: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
 - Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
 
+### Resend (owner email notifications)
+
+Optional. Email notifications use Resend; if unconfigured the email channel cleanly skips and SMS still fires.
+
+- Create an account at <https://resend.com> and add your sending domain (we use `notifications.joincopper.io`). Verify the DNS records.
+- API key into `RESEND_API_KEY`.
+- Set `NOTIFICATIONS_EMAIL_FROM` to a verified sender with a display name, e.g. `Copper <noreply@notifications.joincopper.io>`. The local-part doesn't need to exist as a real mailbox.
+- Templates live in `lib/notifications/templates.ts`; the dispatcher in `lib/notifications/owner.ts` respects the per-tenant `notify_channels` JSON column on `businesses`.
+
 ### OpenRouter
 
 - API key into `OPENROUTER_API_KEY`. Used only for offline call summarization via the OpenAI-compatible endpoint. Vapi runs the in-call model itself with credentials configured directly in the Vapi dashboard.
@@ -370,9 +380,9 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 
 ### AI tools (called mid-call)
 - [x] `get_available_slots` → Cal.com slot lookup
-- [x] `book_appointment` → real Cal.com booking + appointment row + customer SMS + owner SMS, fires `appointment/booked` Inngest event
+- [x] `book_appointment` → real Cal.com booking + appointment row + customer SMS (sync); owner notification fans out async via Inngest `appointment/booked`
 - [x] `lookup_existing_customer` → contacts table query
-- [x] `send_emergency_alert` → owner SMS
+- [x] `send_emergency_alert` → fires `emergency/detected` Inngest event for async owner notification (no longer blocks the AI mid-call)
 - [x] `send_quote_followup` → fires `tool/quote-followup` Inngest event
 
 ### Outbound voice (Flow 2 — speed-to-lead)
@@ -392,17 +402,19 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - [x] Tracked redirect at `/r/{token}` increments `clicked` and 302s to `business.googleReviewUrl`
 
 ### Owner notifications
-- [x] Per-call summary SMS at end-of-call
-- [x] Daily digest SMS at 6 PM local time per tenant (timezone-aware via Postgres `AT TIME ZONE`)
-- [x] Emergency alert SMS
+- [x] **Real-time multi-channel alerts** — SMS + HTML email fired from Inngest on `appointment/booked`, `emergency/detected`, and `call/summary-ready`. Non-blocking so they never slow down the AI mid-call.
+- [x] **Rich content** — each SMS includes a dashboard deep-link; each email is a styled HTML template with caller info, summary, intent/outcome badges, and a CTA button. Emergency emails have a red banner and a tap-to-dial "Call back now" button.
+- [x] **Email via Resend** — optional integration; if `RESEND_API_KEY` is unset, email cleanly skips and SMS still fires.
+- [x] **Per-event channel toggles** — owners can independently enable/disable SMS and email for booking, emergency, and call-summary events from `/dashboard/settings`. Default: SMS+email for bookings and emergencies, SMS-only for call summaries.
+- [x] Daily digest SMS at 6 PM local time per tenant (timezone-aware via Postgres `AT TIME ZONE`).
 
 ### Dashboard
 - [x] Auth-gated layout with sidebar nav
-- [x] Today page (calls / booked / conversion / emergencies / reviews requested)
+- [x] **Today page** — metric cards (calls / booked / conversion / emergencies / reviews) with deltas vs the same window yesterday (↑green / ↓red, inverted for emergencies); two-column section with **Upcoming** (next 5 appointments with Today/Tomorrow labels) and **Today's calls** (last 8 with summary, intent/outcome badges, click-through to transcript); click-to-copy AI receptionist number with "Copied" feedback; friendly empty state with tap-to-call link
 - [x] Calls list + detail (transcript, recording playback, summary, linked appointment)
 - [x] Bookings list (upcoming appointments)
 - [x] Reviews list (pending / sent / clicked / completed)
-- [x] Settings page: business info, hours grid editor, KB JSON sections, voice config; save redeploys Vapi assistant
+- [x] **Settings page** — business info, hours grid editor, services/FAQs editors, **voice picker** (curated set of Vapi voices), brand voice notes, emergency criteria, voicemail script, after-hours policy, **per-event notification channel toggles** (SMS/email per booking/emergency/call-summary); save redeploys Vapi assistant
 - [x] Billing page: subscription status, Stripe checkout, Stripe customer portal
 
 ### Onboarding (self-serve)
@@ -429,6 +441,9 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - [x] `0000_init.sql` — initial 8 tables + RLS
 - [x] `0001_add_vapi_phone_and_google_review.sql`
 - [x] `0002_add_stripe_fields.sql`
+- [x] `0003_add_onboarding_step.sql`
+- [x] `0004_add_voice_id.sql` — picker-selected Vapi voice per tenant
+- [x] `0005_add_notify_channels.sql` — per-event SMS/email toggles
 
 ---
 
@@ -501,7 +516,8 @@ If any step fails, the rest of the testing checklist below tests individual feat
 - [ ] Sidebar shows all 7 sections; business name appears in header
 
 ### 2. Empty-state dashboard
-- [ ] **Today** page: shows zeros and "Quiet day so far" card
+- [ ] **Today** page: AI receptionist number card shown with a working **Copy** button (text flips to "Copied" for 1.5s); 4 metric cards show zeros; empty state in "Today's calls" reads "Quiet day so far" with a tap-to-call link to the AI number
+- [ ] After the first call: metric deltas appear vs yesterday (↑+1 in green for Calls); the call shows up in "Today's calls" with intent/outcome badges; new bookings show up under "Upcoming"
 - [ ] **Calls / Bookings / Reviews**: show empty-state messages, no errors
 
 ### 3. Inbound voice
@@ -525,9 +541,17 @@ If any step fails, the rest of the testing checklist below tests individual feat
 
 ### 5. Emergency
 - [ ] Make a call describing a "gas smell" or "no heat in winter"
-- [ ] AI calls `send_emergency_alert`; owner phone gets EMERGENCY SMS
+- [ ] AI calls `send_emergency_alert`; owner phone gets EMERGENCY SMS (with caller phone + address)
+- [ ] If `RESEND_API_KEY` is set, owner email also arrives — red banner, "Call back now" tap-to-dial button
 - [ ] Call detail in dashboard shows red `emergency` badge
 - [ ] `summary` text reflects the emergency
+
+### 5b. Owner notification fan-out (SMS + email)
+- [ ] After any test call: owner SMS arrives within a few seconds with a dashboard deep-link
+- [ ] If a booking happened: a second SMS + email lands with caller name, service, when, and a "View call" CTA
+- [ ] Visit `/dashboard/settings` → **Notifications** card; toggle off email for "Call summary"; save
+- [ ] Place another call → only SMS arrives for the call summary; booking/emergency channels respected independently
+- [ ] Inngest dev UI shows runs of `notify-owner-appointment-booked`, `notify-owner-emergency`, `notify-owner-call-summary` with per-channel `sent` / `skipped` / `failed` results
 
 ### 6. Web form lead → outbound speed-to-lead
 - [ ] Submit a JSON POST to `/api/webhooks/lead/{business_id}` with `{ phone, name, service }` (and the HMAC signature header if `INTERNAL_WEBHOOK_SECRET` is set)
