@@ -41,6 +41,12 @@ export async function POST(
     if (provided !== expectedSecret) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
+  } else if (process.env.NODE_ENV === "production") {
+    // Belt-and-suspenders — env guard should have caught this already.
+    return NextResponse.json(
+      { error: "server misconfigured: VAPI_WEBHOOK_SECRET not set" },
+      { status: 500 },
+    );
   }
 
   const [business] = await db

@@ -30,6 +30,7 @@ import {
   renderCallSummary,
   renderEmergency,
 } from "@/lib/notifications/templates";
+import { recordWebhookEvent } from "@/lib/db/webhook-idempotency";
 
 /**
  * Speed-to-lead: a website form POST → outbound AI call within ~60 s.
@@ -438,6 +439,13 @@ export const notifyOwnerAppointmentBooked = inngest.createFunction(
   async ({ event, step }) => {
     const { businessId, appointmentId } = event.data as AppointmentBookedData;
 
+    // Dedupe: Inngest may retry; Vapi may resend; tool handlers may double-fire.
+    // First writer wins.
+    const fresh = await step.run("claim-notification-lock", () =>
+      recordWebhookEvent("notification", `appointment:${appointmentId}`),
+    );
+    if (!fresh) return { skipped: "already notified for this appointment" };
+
     const ctx = await step.run("load-context", async () => {
       const [biz] = await db
         .select()
@@ -511,6 +519,15 @@ export const notifyOwnerEmergency = inngest.createFunction(
   async ({ event, step }) => {
     const data = event.data as EmergencyDetectedData;
 
+    // Dedupe per Vapi call so an emergency alert only fires once even if
+    // the AI calls the tool twice in the same call.
+    if (data.vapiCallId) {
+      const fresh = await step.run("claim-notification-lock", () =>
+        recordWebhookEvent("notification", `emergency:${data.vapiCallId}`),
+      );
+      if (!fresh) return { skipped: "already notified for this emergency" };
+    }
+
     const business = await step.run("load-business", async () => {
       const [b] = await db
         .select()
@@ -551,6 +568,12 @@ export const notifyOwnerCallSummary = inngest.createFunction(
   async ({ event, step }) => {
     const { businessId, callId, ownerLine: ownerLineFromEvent } =
       event.data as CallSummaryReadyData;
+
+    // Dedupe: end-of-call-report from Vapi can be resent.
+    const fresh = await step.run("claim-notification-lock", () =>
+      recordWebhookEvent("notification", `call_summary:${callId}`),
+    );
+    if (!fresh) return { skipped: "already notified for this call" };
 
     const ctx = await step.run("load-context", async () => {
       const [biz] = await db

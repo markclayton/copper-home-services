@@ -48,6 +48,10 @@ const envSchema = z.object({
   NOTIFICATIONS_EMAIL_FROM: z.string().min(1).optional(),
 
   SENTRY_DSN: z.string().url().optional(),
+  NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional(),
+  SENTRY_ORG: z.string().min(1).optional(),
+  SENTRY_PROJECT: z.string().min(1).optional(),
+  SENTRY_AUTH_TOKEN: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -71,6 +75,33 @@ function loadEnv(): Env {
       .join("\n");
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
+
+  // Cross-field production guards. These can't be expressed in the Zod
+  // schema because they depend on NODE_ENV.
+  if (parsed.data.NODE_ENV === "production") {
+    const failures: string[] = [];
+    if (parsed.data.DEMO_TWILIO_NUMBER || parsed.data.DEMO_VAPI_PHONE_NUMBER_ID) {
+      failures.push(
+        "DEMO_TWILIO_NUMBER / DEMO_VAPI_PHONE_NUMBER_ID must be unset in production — these route every new signup to a shared demo number.",
+      );
+    }
+    if (!parsed.data.VAPI_WEBHOOK_SECRET) {
+      failures.push(
+        "VAPI_WEBHOOK_SECRET must be set in production — without it, any caller can POST fake end-of-call reports for any tenant.",
+      );
+    }
+    if (!parsed.data.INTERNAL_WEBHOOK_SECRET) {
+      failures.push(
+        "INTERNAL_WEBHOOK_SECRET must be set in production — the lead webhook is unauthenticated without it.",
+      );
+    }
+    if (failures.length > 0) {
+      throw new Error(
+        `Invalid production environment:\n${failures.map((f) => `  - ${f}`).join("\n")}`,
+      );
+    }
+  }
+
   cached = parsed.data;
   return cached;
 }
