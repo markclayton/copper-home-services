@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NonRetriableError } from "inngest";
-import { and, count, eq, gte, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   appointments,
@@ -8,9 +8,13 @@ import {
   calls,
   contacts,
   events,
+  knowledgeBase,
+  messages,
   reviewRequests,
   type Business,
+  type KnowledgeBase,
 } from "@/lib/db/schema";
+import { generateSmsReply, type SmsHistoryMessage } from "@/lib/ai/sms";
 import { sendSms } from "@/lib/telephony/twilio";
 import { createOutboundCall } from "@/lib/voice/vapi";
 import { env } from "@/lib/env";
@@ -21,6 +25,7 @@ import {
   type EmergencyDetectedData,
   type LeadFormData,
   type QuoteFollowupData,
+  type SmsInboundReceivedData,
   type TenantProvisionNeededData,
 } from "./client";
 import { provisionTenant } from "@/lib/provisioning";
@@ -628,5 +633,137 @@ export const notifyOwnerCallSummary = inngest.createFunction(
       notifyOwner({ business, event: "callSummary", message }),
     );
     return { ok: true, ...result };
+  },
+);
+
+/**
+ * sms/inbound-received → generate AI reply and send it via Twilio.
+ *
+ * Fired from the Twilio inbound-SMS webhook AFTER the message row is
+ * persisted. Idempotent on twilioSid via webhook_events. If the LLM
+ * decides the conversation needs a human touch (urgent issue, callback
+ * request, complex question), we also fire an emergency or quote-style
+ * owner notification so the owner sees it.
+ */
+export const respondToInboundSms = inngest.createFunction(
+  {
+    id: "respond-to-inbound-sms",
+    triggers: [{ event: "sms/inbound-received" }],
+    retries: 2,
+    concurrency: { limit: 5, key: "event.data.businessId" },
+  },
+  async ({ event, step }) => {
+    const data = event.data as SmsInboundReceivedData;
+
+    // Dedupe: Twilio can resend webhooks; Inngest can retry steps.
+    const fresh = await step.run("claim-reply-lock", () =>
+      recordWebhookEvent("sms_reply", data.twilioSid),
+    );
+    if (!fresh) return { skipped: "already replied to this inbound" };
+
+    const ctx = await step.run("load-context", async () => {
+      const [biz] = await db
+        .select()
+        .from(businesses)
+        .where(eq(businesses.id, data.businessId))
+        .limit(1);
+      if (!biz) return null;
+
+      const [kb] = await db
+        .select()
+        .from(knowledgeBase)
+        .where(eq(knowledgeBase.businessId, data.businessId))
+        .limit(1);
+
+      // Find the contact for this phone number so we can scope history.
+      const [contact] = await db
+        .select()
+        .from(contacts)
+        .where(
+          and(
+            eq(contacts.businessId, data.businessId),
+            eq(contacts.phone, data.fromNumber),
+          ),
+        )
+        .limit(1);
+
+      // Pull recent conversation context (excluding the message we just got —
+      // it's passed separately as the live turn).
+      let history: SmsHistoryMessage[] = [];
+      if (contact) {
+        const rows = await db
+          .select({
+            direction: messages.direction,
+            body: messages.body,
+          })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.businessId, data.businessId),
+              eq(messages.contactId, contact.id),
+            ),
+          )
+          .orderBy(asc(messages.createdAt))
+          .limit(40);
+        history = rows;
+        // Drop the most recent inbound — it's the same as data.body.
+        const last = history[history.length - 1];
+        if (last?.direction === "inbound" && last.body === data.body) {
+          history = history.slice(0, -1);
+        }
+      }
+
+      return { biz, kb, contact, history };
+    });
+
+    if (!ctx) {
+      throw new NonRetriableError(`business ${data.businessId} not found`);
+    }
+    const business = ctx.biz as unknown as Business;
+    const kb = (ctx.kb ?? null) as unknown as KnowledgeBase | null;
+
+    const reply = await step.run("generate-reply", () =>
+      generateSmsReply({
+        business,
+        kb,
+        history: ctx.history,
+        newMessage: data.body,
+      }),
+    );
+
+    await step.run("send-reply", () =>
+      sendSms({
+        businessId: data.businessId,
+        contactId: ctx.contact?.id ?? null,
+        to: data.fromNumber,
+        body: reply.body,
+      }),
+    );
+
+    if (reply.flagForOwner && reply.flagReason) {
+      await step.run("notify-owner", async () => {
+        await db.insert(events).values({
+          businessId: data.businessId,
+          type: "sms.flagged_for_owner",
+          payload: {
+            messageId: data.messageId,
+            fromNumber: data.fromNumber,
+            reason: reply.flagReason,
+            customerMessage: data.body,
+            aiReply: reply.body,
+          },
+        });
+        // Best-effort owner SMS — quota-checked like any other.
+        await sendSms({
+          businessId: data.businessId,
+          to: business.ownerPhone,
+          body: `Text from ${data.fromNumber}: "${data.body.slice(0, 80)}" — AI flagged this for you. ${reply.flagReason}`,
+        }).catch(() => {
+          // Owner alert is best-effort; the event row above is the source of truth.
+        });
+      });
+    }
+
+    return { ok: true, replied: true, flagged: reply.flagForOwner };
   },
 );

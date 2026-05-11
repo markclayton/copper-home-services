@@ -7,6 +7,7 @@ import {
   notifyOwnerEmergency,
   outboundLeadCall,
   quoteFollowupReminder,
+  respondToInboundSms,
   reviewRequestFlow,
   tenantProvisioning,
 } from "@/lib/jobs/functions";
@@ -22,5 +23,6 @@ export const { GET, POST, PUT } = serve({
     notifyOwnerAppointmentBooked,
     notifyOwnerEmergency,
     notifyOwnerCallSummary,
+    respondToInboundSms,
   ],
 });

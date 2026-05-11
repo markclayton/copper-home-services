@@ -47,6 +47,14 @@ export type CallSummaryReadyData = {
   ownerLine?: string;
 };
 
+export type SmsInboundReceivedData = {
+  businessId: string;
+  messageId: string;
+  twilioSid: string;
+  fromNumber: string;
+  body: string;
+};
+
 export const inngest = new Inngest({
   id: "copper-home-services",
 });
