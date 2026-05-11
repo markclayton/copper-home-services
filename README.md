@@ -293,7 +293,7 @@ Run through this before flipping DNS at a new domain. Order matters — the env 
 - [ ] `TWILIO_MESSAGING_SERVICE_SID` once A2P 10DLC is approved
 
 **Database:**
-- [ ] `bun db:migrate` against the prod DB — applies every migration including 0006 (`webhook_events` table required by webhook idempotency)
+- [ ] `bun db:migrate` against the prod DB — applies every migration including 0006 (`webhook_events` table for webhook idempotency) and 0007 (`messages.sender` enum + `contacts.ai_paused` boolean for owner replies and pause-AI)
 
 **Provider URLs (re-point from ngrok / staging):**
 - [ ] Stripe webhook endpoint → `https://<prod-domain>/api/webhooks/stripe`
@@ -484,13 +484,16 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] Daily digest SMS at 6 PM local time per tenant (timezone-aware via Postgres `AT TIME ZONE`).
 
 ### Dashboard
-- [x] Auth-gated layout with sidebar nav
-- [x] **Today page** — metric cards (calls / booked / conversion / emergencies / reviews) with deltas vs the same window yesterday (↑green / ↓red, inverted for emergencies); two-column section with **Upcoming** (next 5 appointments with Today/Tomorrow labels) and **Today's calls** (last 8 with summary, intent/outcome badges, click-through to transcript); click-to-copy AI receptionist number with "Copied" feedback; friendly empty state with tap-to-call link
-- [x] Calls list + detail (transcript, recording playback, summary, linked appointment)
+- [x] Auth-gated layout with sidebar nav; **mobile-responsive** — sidebar collapses to a hamburger drawer below `md`; help link `mailto:support@joincopper.com` in header.
+- [x] **Today page** — metric cards (calls / booked / conversion / emergencies / reviews) with deltas vs the same window yesterday (↑green / ↓red, inverted for emergencies); **three-column section** with **Upcoming** (next 5 appointments with Today/Tomorrow labels), **Today's calls** (recent calls with summary, intent/outcome badges, click-through to transcript), and **Today's texts** (active SMS conversations with flag indicators and click-through to the conversation); click-to-copy AI receptionist number with "Copied" feedback; friendly empty state with tap-to-call link.
+- [x] Calls list + detail (transcript, recording playback, summary, linked appointment, **"AI got this wrong"** flag button that records `call.flagged_by_owner` events).
+- [x] **Messages — threaded by contact**: list groups all messages by conversation with last-message preview, count, "Needs you" flag badge when AI escalated, and "AI paused" badge when the owner has taken over. Drill-down at `/dashboard/messages/[contactId]` shows the full thread as chat bubbles distinguishing customer (muted left), AI replies (copper right), and owner replies (deep-ink right with a "You" label). Includes a flag-reason callout when the AI flagged the thread.
+- [x] **Owner reply composer + Pause AI toggle** on every conversation page. Composer uses `Cmd+Enter` to send and persists outbound rows with `sender="owner"` via a server action. Pause toggle flips `contacts.ai_paused`; while paused, inbound messages still land in the dashboard but the AI handler logs `sms.ai_paused_skipped` and stays quiet.
 - [x] Bookings list (upcoming appointments)
 - [x] Reviews list (pending / sent / clicked / completed)
 - [x] **Settings page** — business info, hours grid editor, services/FAQs editors, **voice picker** (curated set of Vapi voices), brand voice notes, emergency criteria, voicemail script, after-hours policy, **per-event notification channel toggles** (SMS/email per booking/emergency/call-summary); save redeploys Vapi assistant
 - [x] Billing page: subscription status, Stripe checkout, Stripe customer portal
+- [x] Polished empty states across Calls, Bookings, Reviews, Messages with contextual copy + icons.
 
 ### Onboarding (self-serve)
 - [x] Public form at `/onboard` capturing all PRD §7 fields
@@ -602,9 +605,10 @@ If any step fails, the rest of the testing checklist below tests individual feat
 - [ ] Sidebar shows all 7 sections; business name appears in header
 
 ### 2. Empty-state dashboard
-- [ ] **Today** page: AI receptionist number card shown with a working **Copy** button (text flips to "Copied" for 1.5s); 4 metric cards show zeros; empty state in "Today's calls" reads "Quiet day so far" with a tap-to-call link to the AI number
+- [ ] **Today** page: AI receptionist number card shown with a working **Copy** button (text flips to "Copied" for 1.5s); 4 metric cards show zeros; three-column panel below (Upcoming / Today's calls / Today's texts) each shows a contextual empty state with a tap-to-call link to the AI number
 - [ ] After the first call: metric deltas appear vs yesterday (↑+1 in green for Calls); the call shows up in "Today's calls" with intent/outcome badges; new bookings show up under "Upcoming"
-- [ ] **Calls / Bookings / Reviews**: show empty-state messages, no errors
+- [ ] After the first inbound text: the conversation shows up under "Today's texts" with the latest message preview; the AI's reply appears as the next bubble in the conversation drill-down
+- [ ] **Calls / Bookings / Reviews / Messages**: show contextual empty states with helpful copy (e.g., Messages prompts "Customers who text your AI number show up here"); no errors
 
 ### 3. Inbound voice
 - [ ] Call your tenant's Twilio number from a different phone
@@ -674,11 +678,23 @@ If any step fails, the rest of the testing checklist below tests individual feat
 
 ### 11. Inbound SMS (AI replies)
 - [ ] Text the AI number something simple like "Do you guys do water heater installs?" from a different phone
-- [ ] `messages` table gets a `direction: inbound` row, then an AI-generated `direction: outbound` row within a few seconds
+- [ ] `messages` table gets a `direction: inbound, sender: customer` row, then an AI-generated `direction: outbound, sender: ai` row within a few seconds
 - [ ] Reply lands on the sending phone — short, on-brand, uses the business's KB
 - [ ] Text "my basement is flooding" → AI acknowledges urgency in its reply; an `sms.flagged_for_owner` event lands in the events table; owner phone receives a flag SMS with the customer's message + flag reason
 - [ ] Text "STOP" → carrier-level opt-out, no AI reply on top
 - [ ] Inngest dev UI shows `respond-to-inbound-sms` run with steps `claim-reply-lock`, `load-context`, `generate-reply`, `send-reply`, (optionally) `notify-owner`
+- [ ] Open `/dashboard/messages` — conversation threaded by contact; "Needs you" badge appears on the emergency thread
+- [ ] Click into the conversation: customer messages on the left, AI replies on the right in copper, with an "AI" label below each one
+- [ ] Flag-reason callout at the top lists what the AI escalated and the customer message that triggered it
+
+### 11b. Owner reply + Pause AI
+- [ ] On the conversation page, click **Pause AI** in the header — button flips to "Resume AI"; an "AI paused" badge appears under the contact name
+- [ ] Type a reply in the composer at the bottom and send (or hit `Cmd+Enter`)
+- [ ] Bubble appears on the right in deep ink with a "You" label below it; the contact's phone receives the SMS
+- [ ] `messages` table shows the new row with `sender: owner`
+- [ ] Text the AI number again from the customer phone → AI does NOT auto-reply this time; an `sms.ai_paused_skipped` event lands in the events table; inbound message still appears in the conversation
+- [ ] Click **Resume AI** → next inbound message gets an AI reply again
+- [ ] Today dashboard shows the conversation in the new "Today's texts" panel with a "you" tag on the last sent message
 
 ### 12. RLS isolation
 - [ ] Create a second auth user + second business in DB
