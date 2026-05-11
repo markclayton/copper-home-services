@@ -61,7 +61,7 @@ Customer phone ─► Twilio number ─► Vapi assistant
 Other entry points:
 
 - `/api/webhooks/lead/{business_id}` — web form lead → fires Inngest `lead/web-form-submitted` → outbound Vapi call
-- `/api/webhooks/twilio/sms/{business_id}` — inbound SMS persisted (signature-verified)
+- `/api/webhooks/twilio/sms/{business_id}` — inbound SMS persisted (signature-verified) → fires Inngest `sms/inbound-received` → AI reply via Twilio
 - `/api/webhooks/stripe` — subscription lifecycle → DB
 - `/api/inngest` — Inngest function registry (cron + event handlers)
 - `/r/{token}` — tracked review redirect → marks clicked → Google review URL
@@ -336,7 +336,7 @@ Boot failures show up in Vercel build / runtime logs as `Invalid production envi
 
 - Create app, link to GitHub repo or use the deploy URL.
 - Set the serve URL to `https://<your-domain>/api/inngest`.
-- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`, `tenantProvisioning`, `notifyOwnerAppointmentBooked`, `notifyOwnerEmergency`, `notifyOwnerCallSummary`.
+- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`, `tenantProvisioning`, `notifyOwnerAppointmentBooked`, `notifyOwnerEmergency`, `notifyOwnerCallSummary`, `respondToInboundSms`.
 - Add `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` to Vercel env.
 
 ### Vapi
@@ -461,6 +461,11 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] Outbound SMS via Twilio with DB persistence in `messages`
 - [x] Inbound SMS webhook with HMAC-SHA1 signature verification
 - [x] Idempotent on `MessageSid`
+- [x] **AI-powered SMS replies** — customers can text the AI number in addition to calling. Inbound SMS fires `sms/inbound-received`; `respondToInboundSms` Inngest function loads the KB + last 40 messages of conversation history, asks the LLM (claude-haiku-4.5) for a short reply via a tool call, and sends it back through Twilio.
+- [x] Carrier keywords (STOP/HELP/START/etc.) detected and skipped — Twilio's auto-replies handle these at the carrier level.
+- [x] LLM-driven owner escalation: when the AI flags a thread (emergency, callback request, cancellation, unanswerable question), an `sms.flagged_for_owner` event is logged and a best-effort owner SMS fires with a snippet of the customer message and the flag reason.
+- [x] Per-business Inngest concurrency limit of 5 so a single tenant's text burst doesn't starve others.
+- [x] Idempotency on `twilioSid` via `webhook_events` — Inngest retries and Twilio resends can't double-reply.
 
 ### Reviews (Flow 3)
 - [x] Inngest `reviewRequestFlow` triggered by `appointment/booked`
@@ -663,10 +668,13 @@ If any step fails, the rest of the testing checklist below tests individual feat
 - [ ] Refresh — subscription status shows `active`
 - [ ] Click **Manage billing** → Stripe customer portal opens
 
-### 11. Inbound SMS
-- [ ] Reply to the missed-call text-back SMS from the calling phone
-- [ ] `messages` table gets a new `direction: inbound` row
-- [ ] (No automated reply yet — verifying persistence only)
+### 11. Inbound SMS (AI replies)
+- [ ] Text the AI number something simple like "Do you guys do water heater installs?" from a different phone
+- [ ] `messages` table gets a `direction: inbound` row, then an AI-generated `direction: outbound` row within a few seconds
+- [ ] Reply lands on the sending phone — short, on-brand, uses the business's KB
+- [ ] Text "my basement is flooding" → AI acknowledges urgency in its reply; an `sms.flagged_for_owner` event lands in the events table; owner phone receives a flag SMS with the customer's message + flag reason
+- [ ] Text "STOP" → carrier-level opt-out, no AI reply on top
+- [ ] Inngest dev UI shows `respond-to-inbound-sms` run with steps `claim-reply-lock`, `load-context`, `generate-reply`, `send-reply`, (optionally) `notify-owner`
 
 ### 12. RLS isolation
 - [ ] Create a second auth user + second business in DB

@@ -6,6 +6,7 @@ import {
   businesses,
   calls,
   contacts,
+  events,
   messages,
   reviewRequests,
   type Appointment,
@@ -361,4 +362,181 @@ export async function listMessages(
     .where(eq(messages.businessId, businessId))
     .orderBy(desc(messages.createdAt))
     .limit(limit);
+}
+
+export type ConversationListItem = {
+  contactId: string | null;
+  // Stable key for routing — contactId when present, fallback phone otherwise.
+  key: string;
+  contactName: string | null;
+  contactPhone: string | null;
+  lastBody: string;
+  lastDirection: "inbound" | "outbound";
+  lastAt: Date;
+  messageCount: number;
+  flagged: boolean;
+};
+
+/**
+ * One row per contact, with a preview of the most recent message and a flag
+ * for "AI escalated this thread to you." Used as the top-level Messages view.
+ */
+export async function listConversations(
+  businessId: string,
+  limit = 100,
+): Promise<ConversationListItem[]> {
+  // Pull recent messages in a single query and fold into contact-keyed rows.
+  // Bounded by `limit * 10` so a contact with chatty history doesn't crowd
+  // out other contacts off the top of the list.
+  const rows = await db
+    .select({
+      id: messages.id,
+      contactId: messages.contactId,
+      direction: messages.direction,
+      body: messages.body,
+      sentAt: messages.sentAt,
+      createdAt: messages.createdAt,
+      contactName: contacts.name,
+      contactPhone: contacts.phone,
+      fromNumber: messages.fromNumber,
+      toNumber: messages.toNumber,
+    })
+    .from(messages)
+    .leftJoin(contacts, eq(messages.contactId, contacts.id))
+    .where(eq(messages.businessId, businessId))
+    .orderBy(desc(messages.createdAt))
+    .limit(limit * 10);
+
+  const byKey = new Map<string, ConversationListItem>();
+  for (const r of rows) {
+    const key =
+      r.contactId ??
+      (r.direction === "inbound" ? r.fromNumber : r.toNumber) ??
+      r.id;
+    const existing = byKey.get(key);
+    const at = r.sentAt ?? r.createdAt;
+
+    if (!existing) {
+      byKey.set(key, {
+        contactId: r.contactId,
+        key,
+        contactName: r.contactName,
+        contactPhone:
+          r.contactPhone ??
+          (r.direction === "inbound" ? r.fromNumber : r.toNumber),
+        lastBody: r.body,
+        lastDirection: r.direction,
+        lastAt: at,
+        messageCount: 1,
+        flagged: false,
+      });
+    } else {
+      existing.messageCount += 1;
+      if (at > existing.lastAt) {
+        existing.lastBody = r.body;
+        existing.lastDirection = r.direction;
+        existing.lastAt = at;
+      }
+    }
+  }
+
+  // Annotate threads with flag status by checking the events log for any
+  // `sms.flagged_for_owner` row whose payload.fromNumber matches a contact.
+  // Single roundtrip; build a Set of flagged phones and stamp the matches.
+  const flaggedRows = await db
+    .select({
+      phone: sql<string>`${events.payload}->>'fromNumber'`,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.businessId, businessId),
+        eq(events.type, "sms.flagged_for_owner"),
+      ),
+    );
+  const flaggedPhones = new Set(
+    flaggedRows.map((f) => f.phone).filter((p): p is string => !!p),
+  );
+
+  const result = Array.from(byKey.values());
+  for (const row of result) {
+    if (row.contactPhone && flaggedPhones.has(row.contactPhone)) {
+      row.flagged = true;
+    }
+  }
+
+  result.sort((a, b) => b.lastAt.getTime() - a.lastAt.getTime());
+  return result.slice(0, limit);
+}
+
+export async function getConversation(
+  businessId: string,
+  contactId: string,
+): Promise<{
+  contact: { id: string; name: string | null; phone: string | null } | null;
+  messages: MessageListItem[];
+  flagReasons: { reason: string; at: Date; customerMessage: string }[];
+}> {
+  const [contact] = await db
+    .select({ id: contacts.id, name: contacts.name, phone: contacts.phone })
+    .from(contacts)
+    .where(
+      and(eq(contacts.businessId, businessId), eq(contacts.id, contactId)),
+    )
+    .limit(1);
+  if (!contact) {
+    return { contact: null, messages: [], flagReasons: [] };
+  }
+
+  const msgs = await db
+    .select({
+      id: messages.id,
+      businessId: messages.businessId,
+      contactId: messages.contactId,
+      direction: messages.direction,
+      body: messages.body,
+      twilioSid: messages.twilioSid,
+      status: messages.status,
+      fromNumber: messages.fromNumber,
+      toNumber: messages.toNumber,
+      sentAt: messages.sentAt,
+      createdAt: messages.createdAt,
+      contactName: contacts.name,
+      contactPhone: contacts.phone,
+    })
+    .from(messages)
+    .leftJoin(contacts, eq(messages.contactId, contacts.id))
+    .where(
+      and(
+        eq(messages.businessId, businessId),
+        eq(messages.contactId, contactId),
+      ),
+    )
+    .orderBy(messages.createdAt);
+
+  const flagRows = await db
+    .select({ payload: events.payload, createdAt: events.createdAt })
+    .from(events)
+    .where(
+      and(
+        eq(events.businessId, businessId),
+        eq(events.type, "sms.flagged_for_owner"),
+        sql`${events.payload}->>'fromNumber' = ${contact.phone ?? ""}`,
+      ),
+    )
+    .orderBy(desc(events.createdAt));
+
+  const flagReasons = flagRows
+    .map((f) => {
+      const p = (f.payload ?? {}) as Record<string, unknown>;
+      return {
+        reason: typeof p.reason === "string" ? p.reason : "",
+        customerMessage:
+          typeof p.customerMessage === "string" ? p.customerMessage : "",
+        at: f.createdAt,
+      };
+    })
+    .filter((f) => f.reason);
+
+  return { contact, messages: msgs, flagReasons };
 }
