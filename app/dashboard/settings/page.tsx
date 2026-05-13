@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { knowledgeBase } from "@/lib/db/schema";
 import { requireBusiness } from "@/lib/db/queries";
 import { SettingsForm } from "@/components/dashboard/settings-form";
+import { DangerZone } from "@/components/dashboard/danger-zone";
 
 export default async function SettingsPage() {
   const { business } = await requireBusiness();
@@ -23,6 +24,7 @@ export default async function SettingsPage() {
         </p>
       </div>
       <SettingsForm business={business} kb={kb ?? null} />
+      <DangerZone businessName={business.name} />
     </div>
   );
 }

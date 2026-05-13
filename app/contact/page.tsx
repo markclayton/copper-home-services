@@ -21,14 +21,14 @@ export default function ContactPage() {
         <ContactCard
           icon={<Mail size={18} className="text-copper-600" />}
           label="Email"
-          value="support@joincopper.com"
-          href="mailto:support@joincopper.com"
+          value="support@joincopper.io"
+          href="mailto:support@joincopper.io"
         />
         <ContactCard
           icon={<MessageSquare size={18} className="text-copper-600" />}
           label="Sales"
-          value="sales@joincopper.com"
-          href="mailto:sales@joincopper.com"
+          value="sales@joincopper.io"
+          href="mailto:sales@joincopper.io"
         />
       </div>
 
@@ -47,7 +47,7 @@ export default function ContactPage() {
       <p>
         You don&apos;t need to talk to anyone to start — the whole onboarding
         is self-serve at{" "}
-        <a href="/onboard">joincopper.com/onboard</a>. But if you&apos;d
+        <a href="/onboard">joincopper.io/onboard</a>. But if you&apos;d
         rather have a conversation first, send us a note.
       </p>
     </MarketingShell>

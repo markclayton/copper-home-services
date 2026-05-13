@@ -161,3 +161,14 @@ export async function createEventType(args: CreateEventTypeArgs) {
   });
   return res.data;
 }
+
+/**
+ * Delete a Cal.com event type. Used during tenant deprovisioning.
+ * Docs: https://cal.com/docs/api-reference/v2/event-types/delete-an-event-type
+ */
+export async function deleteEventType(eventTypeId: number) {
+  return calFetch<{ status: string }>(`/event-types/${eventTypeId}`, {
+    method: "DELETE",
+    apiVersion: "2024-06-14",
+  });
+}

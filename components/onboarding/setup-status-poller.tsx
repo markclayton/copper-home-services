@@ -99,10 +99,10 @@ export function SetupStatusPoller({
         </p>
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <a
-            href="mailto:support@joincopper.com?subject=Setup%20stuck"
+            href="mailto:support@joincopper.io?subject=Setup%20stuck"
             className="inline-flex items-center text-sm font-medium underline underline-offset-4 hover:text-foreground"
           >
-            Email support@joincopper.com
+            Email support@joincopper.io
           </a>
           <button
             type="button"

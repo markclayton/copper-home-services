@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AlertCircle, ArrowLeft, Pause } from "lucide-react";
+import { ConversationScroll } from "@/components/dashboard/conversation-scroll";
 import { PauseAiToggle } from "@/components/dashboard/pause-ai-toggle";
 import { ReplyComposer } from "@/components/dashboard/reply-composer";
 import { getConversation, requireBusiness } from "@/lib/db/queries";
@@ -21,76 +22,85 @@ export default async function ConversationDetailPage({
   if (!contact) notFound();
 
   return (
-    <div className="flex flex-col gap-6 max-w-3xl">
-      <div>
+    // Chat-app layout: pinned to viewport, only the middle scrolls. Negative
+    // margin cancels the parent <main> padding so the column fills the area
+    // exactly. h-[calc(100dvh-3.5rem)] = viewport minus the dashboard header.
+    <div className="flex flex-col h-[calc(100dvh-3.5rem)] -m-4 md:-m-6">
+      {/* Pinned top: back link + contact info + pause toggle */}
+      <div className="border-b px-4 md:px-6 py-3 shrink-0 bg-background">
         <Link
           href="/dashboard/messages"
-          className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mb-1.5"
         >
-          <ArrowLeft size={14} /> All conversations
+          <ArrowLeft size={12} /> All conversations
         </Link>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-semibold truncate">
+              {contact.name ?? "Unknown"}
+            </h1>
+            <p className="text-xs text-muted-foreground font-mono">
+              {formatPhone(contact.phone)}
+            </p>
+            {contact.aiPaused && (
+              <div className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-medium mt-1">
+                <Pause size={10} /> AI paused
+              </div>
+            )}
+          </div>
+          <PauseAiToggle contactId={contact.id} paused={contact.aiPaused} />
+        </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold truncate">
-            {contact.name ?? "Unknown"}
-          </h1>
-          <p className="text-sm text-muted-foreground font-mono">
-            {formatPhone(contact.phone)}
-          </p>
-          {contact.aiPaused && (
-            <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground font-medium mt-2">
-              <Pause size={11} /> AI paused for this contact
+      {/* Scrolling middle: flag callout (if any) + messages */}
+      <ConversationScroll triggerKey={messages.length}>
+        <div className="px-4 md:px-6 py-4 flex flex-col gap-3 max-w-3xl mx-auto w-full">
+          {flagReasons.length > 0 && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <AlertCircle size={14} className="text-primary" />
+                AI flagged this conversation for you
+              </div>
+              {flagReasons.slice(0, 3).map((f, i) => (
+                <div key={i} className="text-sm">
+                  <div className="text-muted-foreground text-xs mb-0.5">
+                    {formatRelative(f.at)}
+                  </div>
+                  <div>{f.reason}</div>
+                  {f.customerMessage && (
+                    <div className="text-xs text-muted-foreground mt-1 italic">
+                      Triggered by: &ldquo;{f.customerMessage}&rdquo;
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
+
+          {messages.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No messages in this conversation yet.
+            </p>
+          ) : (
+            messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                direction={m.direction}
+                sender={m.sender}
+                body={m.body}
+                at={m.sentAt ?? m.createdAt}
+                timezone={business.timezone}
+              />
+            ))
+          )}
         </div>
-        <PauseAiToggle contactId={contact.id} paused={contact.aiPaused} />
-      </div>
+      </ConversationScroll>
 
-      {flagReasons.length > 0 && (
-        <div className="rounded-md border border-primary/30 bg-primary/5 p-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <AlertCircle size={14} className="text-primary" />
-            AI flagged this conversation for you
-          </div>
-          {flagReasons.slice(0, 3).map((f, i) => (
-            <div key={i} className="text-sm">
-              <div className="text-muted-foreground text-xs mb-0.5">
-                {formatRelative(f.at)}
-              </div>
-              <div>{f.reason}</div>
-              {f.customerMessage && (
-                <div className="text-xs text-muted-foreground mt-1 italic">
-                  Triggered by: &ldquo;{f.customerMessage}&rdquo;
-                </div>
-              )}
-            </div>
-          ))}
+      {/* Pinned bottom: composer */}
+      <div className="border-t px-4 md:px-6 py-3 shrink-0 bg-background">
+        <div className="max-w-3xl mx-auto w-full">
+          <ReplyComposer contactId={contact.id} aiPaused={contact.aiPaused} />
         </div>
-      )}
-
-      <div className="flex flex-col gap-3">
-        {messages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No messages in this conversation yet.
-          </p>
-        ) : (
-          messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              direction={m.direction}
-              sender={m.sender}
-              body={m.body}
-              at={m.sentAt ?? m.createdAt}
-              timezone={business.timezone}
-            />
-          ))
-        )}
-      </div>
-
-      <div className="pt-2">
-        <ReplyComposer contactId={contact.id} aiPaused={contact.aiPaused} />
       </div>
     </div>
   );

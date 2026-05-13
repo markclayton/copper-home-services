@@ -11,19 +11,24 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  const isAuthed = !!data?.claims;
+
   return (
     <div className="bg-cream-100 text-ink min-h-screen font-sans antialiased selection:bg-copper/20">
-      <SiteHeader />
-      <Hero />
+      <SiteHeader isAuthed={isAuthed} />
+      <Hero isAuthed={isAuthed} />
       <IndustryStrip />
       <ProblemStats />
       <FeatureBlocks />
       <HowItWorks />
-      <Pricing />
+      <Pricing isAuthed={isAuthed} />
       <Faq />
-      <FinalCta />
+      <FinalCta isAuthed={isAuthed} />
       <SiteFooter />
     </div>
   );
@@ -31,7 +36,7 @@ export default function Home() {
 
 /* ─── Header ──────────────────────────────────────────────────────────── */
 
-function SiteHeader() {
+function SiteHeader({ isAuthed }: { isAuthed: boolean }) {
   return (
     <header className="border-b border-ink/10 bg-cream-100/90 backdrop-blur sticky top-0 z-50">
       <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
@@ -54,18 +59,29 @@ function SiteHeader() {
           </a>
         </nav>
         <div className="flex items-center gap-2">
-          <Link
-            href="/auth/login"
-            className="hidden sm:inline-flex text-sm text-ink-700 hover:text-ink px-3 py-2"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/onboard"
-            className="inline-flex items-center gap-1.5 bg-ink text-cream-100 text-sm font-medium px-4 py-2 rounded-md hover:bg-copper-700 transition-colors"
-          >
-            Get started <ArrowRight size={14} />
-          </Link>
+          {isAuthed ? (
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1.5 bg-ink text-cream-100 text-sm font-medium px-4 py-2 rounded-md hover:bg-copper-700 transition-colors"
+            >
+              Dashboard <ArrowRight size={14} />
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/auth/login"
+                className="hidden sm:inline-flex text-sm text-ink-700 hover:text-ink px-3 py-2"
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/onboard"
+                className="inline-flex items-center gap-1.5 bg-ink text-cream-100 text-sm font-medium px-4 py-2 rounded-md hover:bg-copper-700 transition-colors"
+              >
+                Get started <ArrowRight size={14} />
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>
@@ -82,7 +98,7 @@ function CopperMark() {
 
 /* ─── Hero ────────────────────────────────────────────────────────────── */
 
-function Hero() {
+function Hero({ isAuthed }: { isAuthed: boolean }) {
   return (
     <section className="border-b border-ink/10 relative overflow-hidden">
       <div className="mx-auto max-w-6xl px-6 pt-16 pb-20 md:pt-24 md:pb-28 grid md:grid-cols-[1.05fr_1fr] gap-12 md:gap-16 items-center">
@@ -104,10 +120,13 @@ function Hero() {
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-2">
             <Link
-              href="/onboard"
+              href={isAuthed ? "/dashboard" : "/onboard"}
               className="inline-flex items-center gap-2 bg-copper-600 text-cream-100 font-medium px-5 py-3 rounded-md hover:bg-copper-700 transition-colors shadow-[0_1px_0_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.18)]"
             >
-              Start your AI receptionist <ArrowRight size={16} />
+              {isAuthed
+                ? "Open your dashboard"
+                : "Start your AI receptionist"}{" "}
+              <ArrowRight size={16} />
             </Link>
             <a
               href="#how"
@@ -625,7 +644,7 @@ function HowItWorks() {
 
 /* ─── Pricing ─────────────────────────────────────────────────────────── */
 
-function Pricing() {
+function Pricing({ isAuthed }: { isAuthed: boolean }) {
   const included = [
     "Dedicated AI receptionist",
     "Local phone number included",
@@ -686,10 +705,11 @@ function Pricing() {
             </div>
 
             <Link
-              href="/onboard"
+              href={isAuthed ? "/dashboard" : "/onboard"}
               className="inline-flex items-center justify-center gap-2 bg-copper-600 text-cream-100 font-medium px-6 py-3 rounded-md hover:bg-copper-700 transition-colors w-full md:w-auto shadow-[0_1px_0_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.18)]"
             >
-              Get started <ArrowRight size={16} />
+              {isAuthed ? "Open dashboard" : "Get started"}{" "}
+              <ArrowRight size={16} />
             </Link>
           </div>
         </div>
@@ -765,7 +785,7 @@ function Faq() {
 
 /* ─── Final CTA ───────────────────────────────────────────────────────── */
 
-function FinalCta() {
+function FinalCta({ isAuthed }: { isAuthed: boolean }) {
   return (
     <section className="relative border-b border-ink/10 bg-ink text-cream-100 overflow-hidden">
       <div
@@ -789,18 +809,29 @@ function FinalCta() {
           before you finish reading this.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3 mt-2">
-          <Link
-            href="/onboard"
-            className="inline-flex items-center gap-2 bg-copper-600 text-cream-100 font-medium px-6 py-3 rounded-md hover:bg-copper-700 transition-colors shadow-[0_1px_0_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.18)]"
-          >
-            Get started <ArrowRight size={16} />
-          </Link>
-          <Link
-            href="/auth/login"
-            className="inline-flex items-center gap-2 text-cream-100/80 hover:text-cream-100 font-medium px-4 py-3"
-          >
-            Sign in
-          </Link>
+          {isAuthed ? (
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-2 bg-copper-600 text-cream-100 font-medium px-6 py-3 rounded-md hover:bg-copper-700 transition-colors shadow-[0_1px_0_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.18)]"
+            >
+              Open dashboard <ArrowRight size={16} />
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/onboard"
+                className="inline-flex items-center gap-2 bg-copper-600 text-cream-100 font-medium px-6 py-3 rounded-md hover:bg-copper-700 transition-colors shadow-[0_1px_0_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.18)]"
+              >
+                Get started <ArrowRight size={16} />
+              </Link>
+              <Link
+                href="/auth/login"
+                className="inline-flex items-center gap-2 text-cream-100/80 hover:text-cream-100 font-medium px-4 py-3"
+              >
+                Sign in
+              </Link>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-1 text-copper-300 mt-3">
           {[0, 1, 2, 3, 4].map((i) => (
@@ -851,7 +882,7 @@ function SiteFooter() {
         <FooterCol
           title="Get help"
           links={[
-            { label: "support@joincopper.com", href: "mailto:support@joincopper.com" },
+            { label: "support@joincopper.io", href: "mailto:support@joincopper.io" },
           ]}
         />
       </div>

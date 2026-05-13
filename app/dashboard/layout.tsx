@@ -41,13 +41,13 @@ export default function DashboardLayout({
           </div>
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <a
-              href="mailto:support@joincopper.com"
+              href="mailto:support@joincopper.io"
               className="hidden sm:inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent transition-colors"
             >
               <LifeBuoy size={14} /> Help
             </a>
             <a
-              href="mailto:support@joincopper.com"
+              href="mailto:support@joincopper.io"
               aria-label="Help"
               className="sm:hidden inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent text-muted-foreground"
             >

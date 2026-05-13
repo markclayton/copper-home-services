@@ -27,7 +27,9 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   if (!client) return { ok: false, reason: "email_not_configured" };
 
   const from =
-    args.from ?? env.NOTIFICATIONS_EMAIL_FROM ?? "Copper <noreply@copper.app>";
+    args.from ??
+    env.NOTIFICATIONS_EMAIL_FROM ??
+    "Copper AI <hello@notifications.joincopper.io>";
 
   const result = await client.emails.send({
     from,

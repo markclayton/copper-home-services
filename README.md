@@ -484,7 +484,7 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] Daily digest SMS at 6 PM local time per tenant (timezone-aware via Postgres `AT TIME ZONE`).
 
 ### Dashboard
-- [x] Auth-gated layout with sidebar nav; **mobile-responsive** — sidebar collapses to a hamburger drawer below `md`; help link `mailto:support@joincopper.com` in header.
+- [x] Auth-gated layout with sidebar nav; **mobile-responsive** — sidebar collapses to a hamburger drawer below `md`; help link `mailto:support@joincopper.io` in header.
 - [x] **Today page** — metric cards (calls / booked / conversion / emergencies / reviews) with deltas vs the same window yesterday (↑green / ↓red, inverted for emergencies); **three-column section** with **Upcoming** (next 5 appointments with Today/Tomorrow labels), **Today's calls** (recent calls with summary, intent/outcome badges, click-through to transcript), and **Today's texts** (active SMS conversations with flag indicators and click-through to the conversation); click-to-copy AI receptionist number with "Copied" feedback; friendly empty state with tap-to-call link.
 - [x] Calls list + detail (transcript, recording playback, summary, linked appointment, **"AI got this wrong"** flag button that records `call.flagged_by_owner` events).
 - [x] **Messages — threaded by contact**: list groups all messages by conversation with last-message preview, count, "Needs you" flag badge when AI escalated, and "AI paused" badge when the owner has taken over. Drill-down at `/dashboard/messages/[contactId]` shows the full thread as chat bubbles distinguishing customer (muted left), AI replies (copper right), and owner replies (deep-ink right with a "You" label). Includes a flag-reason callout when the AI flagged the thread.

@@ -46,18 +46,57 @@ export default function TermsPage() {
 
       <h2>Acceptable use</h2>
       <p>
-        Don&apos;t use Copper to spam, deceive, harass, or break the law. Don&apos;t use
-        Copper for industries that aren&apos;t home services without
-        checking with us first. Don&apos;t reverse-engineer the service or
-        attempt to access another customer&apos;s data.
+        Don&apos;t use Copper to spam, deceive, harass, or break the law.
+        Don&apos;t use Copper for industries that aren&apos;t home services
+        without checking with us first. Don&apos;t reverse-engineer the
+        service or attempt to access another customer&apos;s data.
       </p>
 
-      <h2>SMS compliance</h2>
+      <h2>SMS messaging program</h2>
       <p>
-        You authorize Copper to send SMS on your behalf to your customers
-        related to their service inquiries (appointment confirmations, missed
-        call follow-ups, review requests). Customers can reply STOP to opt
-        out at any time, which is handled automatically.
+        By signing up for Copper, you authorize us to send and receive SMS on
+        your behalf to consumers who text your business phone number. This
+        includes AI-generated replies to inbound texts, manual replies you
+        send through your dashboard, and account notifications we send to
+        you about activity on your account.
+      </p>
+      <p>
+        <strong>Consent.</strong> Outbound SMS to your customers is sent only
+        in response to a consumer-initiated text. Consumers establish prior
+        express consent under TCPA by texting your published business
+        number. You must not use Copper to send unsolicited promotional or
+        marketing messages.
+      </p>
+      <p>
+        <strong>Opt-out.</strong> Consumers can reply <code>STOP</code>,{" "}
+        <code>STOPALL</code>, <code>UNSUBSCRIBE</code>, <code>CANCEL</code>,{" "}
+        <code>END</code>, or <code>QUIT</code> to opt out of future
+        messages. Replies of <code>HELP</code> or <code>INFO</code> return
+        help instructions. Replies of <code>START</code> or{" "}
+        <code>UNSTOP</code> re-subscribe. These commands are handled at the
+        carrier level and take effect immediately on the consumer&apos;s
+        number — the AI cannot continue to message a number that has opted
+        out.
+      </p>
+      <p>
+        <strong>Carrier rates.</strong> Standard message and data rates may
+        apply to consumers based on their mobile carrier. Copper is not
+        responsible for the consumer&apos;s carrier charges.
+      </p>
+      <p>
+        <strong>Deliverability.</strong> SMS deliverability depends on
+        carriers (AT&amp;T, Verizon, T-Mobile, and others) and on A2P 10DLC
+        registration status with The Campaign Registry. We do not guarantee
+        that any individual message will be delivered, and we are not liable
+        for messages filtered, delayed, or blocked by carriers.
+      </p>
+      <p>
+        <strong>Your responsibilities.</strong> You agree not to use Copper
+        to send messages containing prohibited content (SHAFT — sex, hate,
+        alcohol, firearms, tobacco; cannabis; gambling; lending; or other
+        carrier-prohibited categories). You agree not to attempt to bypass
+        carrier filters or opt-out mechanisms. Violations may result in
+        immediate account suspension and reporting to your carrier.
       </p>
 
       <h2>Service availability</h2>
@@ -65,14 +104,15 @@ export default function TermsPage() {
         We aim for 99.5% uptime but don&apos;t guarantee it. Outages can
         happen — at Twilio, Vapi, Supabase, our hosting provider, or on our
         side. We don&apos;t accept liability for missed calls, lost bookings,
-        or other indirect damages caused by downtime.
+        undelivered SMS, or other indirect damages caused by downtime.
       </p>
 
       <h2>Termination</h2>
       <p>
         You can cancel anytime from your dashboard or by emailing us. We can
         suspend or terminate your account for breach of these terms, abuse,
-        non-payment, or use that puts our infrastructure at risk.
+        non-payment, or use that puts our infrastructure or carrier
+        registration at risk.
       </p>
 
       <h2>Changes to these terms</h2>
@@ -83,7 +123,7 @@ export default function TermsPage() {
 
       <h2>Questions</h2>
       <p>
-        Email <a href="mailto:support@joincopper.com">support@joincopper.com</a>.
+        Email <a href="mailto:support@joincopper.io">support@joincopper.io</a>.
       </p>
     </MarketingShell>
   );
