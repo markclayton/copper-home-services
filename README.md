@@ -302,6 +302,7 @@ Run through this before flipping DNS at a new domain. Order matters — the env 
 - [ ] `RESEND_API_KEY` + `NOTIFICATIONS_EMAIL_FROM` (or leave unset — email cleanly no-ops)
 - [ ] `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (build-time only)
 - [ ] `TWILIO_MESSAGING_SERVICE_SID` once A2P 10DLC is approved
+- [ ] `SIGNUP_ALLOWLIST` set to your tester roster while in private beta — see [Private-beta signup gate](#private-beta-signup-gate) below. Clear the var to open public signups.
 
 **Database:**
 - [ ] `bun db:migrate` against the prod DB — applies every migration including 0006 (`webhook_events` table for webhook idempotency) and 0007 (`messages.sender` enum + `contacts.ai_paused` boolean for owner replies and pause-AI)
@@ -329,6 +330,36 @@ The env loader at `lib/env.ts` runs cross-field validation when `NODE_ENV=produc
 - `INTERNAL_WEBHOOK_SECRET` unset → the lead webhook would be unauthenticated.
 
 Boot failures show up in Vercel build / runtime logs as `Invalid production environment: ...`. Fix the env in Vercel and redeploy.
+
+### Private-beta signup gate
+
+While A2P 10DLC is still pending or while you're closed-beta testing with a small roster, the codebase has a built-in allowlist gate. The marketing site, legal pages, and login flow stay public — only **new account creation** is restricted.
+
+**Configure**: set `SIGNUP_ALLOWLIST` in Vercel to a comma-separated list of beta-tester emails:
+
+```
+SIGNUP_ALLOWLIST=mark.clayton93@gmail.com,tester1@example.com,tester2@example.com
+```
+
+Leave the var unset (or empty) and the gate is OFF — anyone can sign up. That's the local-dev default.
+
+**Behavior when the gate is active:**
+
+| Path | What happens |
+|---|---|
+| `/` and other marketing pages | Public, unchanged. |
+| `/privacy`, `/terms`, `/contact` | Public — A2P reviewers can read them. |
+| `/auth/login` | Anyone can attempt sign-in. Existing users sign in normally. |
+| `/auth/sign-up` (email/password) | Server action checks `SIGNUP_ALLOWLIST` before calling Supabase signUp. Blocked emails redirect to `/auth/waitlist`. |
+| `/auth/callback` (Google OAuth) | After OAuth round-trip: if the email isn't on the allowlist AND the user has no existing business in our DB, we sign them out, delete the freshly-created Supabase auth row, and redirect to `/auth/waitlist`. |
+| `/onboard/*` | Defense-in-depth: `loadDraftSession` re-checks the allowlist before creating a draft business. Blocked → `/auth/waitlist`. |
+| `/dashboard/*` | No gate. Once a user is past onboarding (has a business in our DB), they keep working even if you remove them from the allowlist later. |
+
+**Adding / removing testers**: change the `SIGNUP_ALLOWLIST` env in Vercel and redeploy (or use Vercel's "Update Environment Variables" → "Save and redeploy" flow). Existing tenants are not affected by allowlist changes — to fully revoke access from someone who's already onboarded, delete their auth user from Supabase and their business row from the DB.
+
+**Lifting the gate**: when A2P is approved and you're ready for open signups, clear the `SIGNUP_ALLOWLIST` env var (or remove the var entirely). No code change needed.
+
+The implementation lives in `lib/auth/allowlist.ts`. Three enforcement points: `components/sign-up-form.tsx` (email/password), `app/auth/callback/route.ts` (OAuth), `lib/onboarding/draft-business.ts` (onboarding defense-in-depth).
 
 ### Supabase
 

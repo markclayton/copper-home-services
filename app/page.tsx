@@ -76,7 +76,7 @@ function SiteHeader({ isAuthed }: { isAuthed: boolean }) {
                 Sign in
               </Link>
               <Link
-                href="/onboard"
+                href="/auth/sign-up"
                 className="inline-flex items-center gap-1.5 bg-ink text-cream-100 text-sm font-medium px-4 py-2 rounded-md hover:bg-copper-700 transition-colors"
               >
                 Get started <ArrowRight size={14} />
@@ -113,7 +113,7 @@ function Hero({ isAuthed }: { isAuthed: boolean }) {
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-2">
             <Link
-              href={isAuthed ? "/dashboard" : "/onboard"}
+              href={isAuthed ? "/dashboard" : "/auth/sign-up"}
               className="inline-flex items-center gap-2 bg-copper-600 text-cream-100 font-medium px-5 py-3 rounded-md hover:bg-copper-700 transition-colors shadow-[0_1px_0_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.18)]"
             >
               {isAuthed
@@ -698,7 +698,7 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
             </div>
 
             <Link
-              href={isAuthed ? "/dashboard" : "/onboard"}
+              href={isAuthed ? "/dashboard" : "/auth/sign-up"}
               className="inline-flex items-center justify-center gap-2 bg-copper-600 text-cream-100 font-medium px-6 py-3 rounded-md hover:bg-copper-700 transition-colors w-full md:w-auto shadow-[0_1px_0_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.18)]"
             >
               {isAuthed ? "Open dashboard" : "Get started"}{" "}
@@ -812,7 +812,7 @@ function FinalCta({ isAuthed }: { isAuthed: boolean }) {
           ) : (
             <>
               <Link
-                href="/onboard"
+                href="/auth/sign-up"
                 className="inline-flex items-center gap-2 bg-copper-600 text-cream-100 font-medium px-6 py-3 rounded-md hover:bg-copper-700 transition-colors shadow-[0_1px_0_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.18)]"
               >
                 Get started <ArrowRight size={16} />

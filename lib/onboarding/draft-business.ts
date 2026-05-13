@@ -7,6 +7,7 @@ import {
   type Business,
   type KnowledgeBase,
 } from "@/lib/db/schema";
+import { isEmailAllowlisted } from "@/lib/auth/allowlist";
 import { createClient } from "@/lib/supabase/server";
 
 export type DraftSession = {
@@ -40,6 +41,14 @@ export async function loadDraftSession(): Promise<DraftSession> {
 
   if (business?.status === "live") {
     redirect("/dashboard");
+  }
+
+  // Private-beta gate, defense-in-depth: even if someone got past the
+  // signup form / OAuth callback, block them from creating a draft
+  // business if they're not on the allowlist. Existing tenants (a row
+  // already loaded above) are grandfathered in regardless.
+  if (!business && !isEmailAllowlisted(email)) {
+    redirect("/auth/waitlist");
   }
 
   if (!business) {

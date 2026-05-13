@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { checkSignupAllowed } from "@/app/auth/sign-up/actions";
 
 export function SignUpForm({
   className,
@@ -37,6 +38,15 @@ export function SignUpForm({
     if (password !== repeatPassword) {
       setError("Passwords do not match");
       setIsLoading(false);
+      return;
+    }
+
+    // Private-beta gate. Server action checks the SIGNUP_ALLOWLIST env var
+    // before we even touch Supabase, so we don't create an auth user just
+    // to delete it afterwards.
+    const { allowed } = await checkSignupAllowed(email);
+    if (!allowed) {
+      router.push("/auth/waitlist");
       return;
     }
 

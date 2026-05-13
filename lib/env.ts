@@ -20,6 +20,13 @@ const envSchema = z.object({
 
   INTERNAL_WEBHOOK_SECRET: z.string().min(16).optional(),
 
+  // Private-beta gate. Comma-separated list of emails allowed to create new
+  // accounts. When unset, gate is OFF (anyone can sign up). When set, only
+  // listed emails can sign up via email/password or Google OAuth. Existing
+  // users (any email already tied to a business in our DB) always get
+  // through. Used to keep production tight while A2P 10DLC is pending.
+  SIGNUP_ALLOWLIST: z.string().optional(),
+
   VAPI_API_KEY: z.string().min(1).optional(),
   VAPI_ORG_ID: z.string().min(1).optional(),
   VAPI_ASSISTANT_TEMPLATE_ID: z.string().min(1).optional(),
