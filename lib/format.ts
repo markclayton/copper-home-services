@@ -95,3 +95,17 @@ export function isValidUsPhone(
 ): boolean {
   return normalizeUsPhone(input) !== null;
 }
+
+/**
+ * Pulls the 3-digit US area code out of a phone number. Returns null if the
+ * input doesn't parse as a valid NANP number. Used during provisioning so
+ * the new Twilio number matches the owner's local area code by default.
+ */
+export function extractUsAreaCode(
+  input: string | null | undefined,
+): string | null {
+  const normalized = normalizeUsPhone(input);
+  if (!normalized) return null;
+  // E.164 US is +1XXXAAAYYYY — area code is digits 2-4 (zero-indexed slice).
+  return normalized.slice(2, 5);
+}

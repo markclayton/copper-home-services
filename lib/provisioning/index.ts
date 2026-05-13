@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { businesses, events } from "@/lib/db/schema";
 import { env, requireEnv } from "@/lib/env";
+import { extractUsAreaCode } from "@/lib/format";
 import { attachToMessagingService, buyLocalNumber } from "./twilio";
 import {
   registerPhoneNumber,
@@ -87,10 +88,16 @@ export async function provisionTenant(
       detail: `demo: ${twilioNumber}`,
     });
   } else {
+    // Default to the owner's area code so the new Twilio number reads as
+    // local to their customers. Falls back to any-US-local if either the
+    // owner phone isn't parseable or Twilio has no inventory in that area
+    // code right now (the latter handled inside buyLocalNumber).
+    const preferredAreaCode =
+      opts.areaCode ?? extractUsAreaCode(businessRow.ownerPhone) ?? undefined;
     try {
       const bought = await buyLocalNumber({
         businessId,
-        areaCode: opts.areaCode,
+        areaCode: preferredAreaCode,
       });
       twilioNumber = bought.phoneNumber;
       twilioPhoneSid = bought.twilioSid;
@@ -102,10 +109,15 @@ export async function provisionTenant(
           updatedAt: new Date(),
         })
         .where(eq(businesses.id, businessId));
+      const detail = bought.fellBack
+        ? `${bought.phoneNumber} (no inventory in area code ${bought.requestedAreaCode}, fell back to any US local)`
+        : bought.requestedAreaCode
+          ? `${bought.phoneNumber} (area code ${bought.requestedAreaCode})`
+          : bought.phoneNumber;
       steps.push({
         name: "twilio-number",
         status: "ok",
-        detail: bought.phoneNumber,
+        detail,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
