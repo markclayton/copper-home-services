@@ -55,7 +55,7 @@ export async function sendOwnerReply(
       return {
         ok: false,
         error:
-          "You've hit the monthly SMS limit for this business. Email support@joincopper.io if you need it raised.",
+          "You've hit the monthly SMS limit for this business. Email info@joincopper.io if you need it raised.",
       };
     }
     return {

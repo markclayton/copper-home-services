@@ -42,7 +42,7 @@ export async function deleteAccount(
     return {
       ok: false,
       error:
-        "Couldn't fully delete your account. We've logged the issue — email support@joincopper.io and we'll finish the cleanup.",
+        "Couldn't fully delete your account. We've logged the issue — email info@joincopper.io and we'll finish the cleanup.",
     };
   }
 

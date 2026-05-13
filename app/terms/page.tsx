@@ -123,7 +123,7 @@ export default function TermsPage() {
 
       <h2>Questions</h2>
       <p>
-        Email <a href="mailto:support@joincopper.io">support@joincopper.io</a>.
+        Email <a href="mailto:info@joincopper.io">info@joincopper.io</a>.
       </p>
     </MarketingShell>
   );

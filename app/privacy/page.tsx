@@ -16,7 +16,7 @@ export default function PrivacyPage() {
         This is a working draft of our privacy policy. We&apos;ll have it
         reviewed by counsel before we&apos;re open to the general public. If
         you have a question that isn&apos;t covered, email{" "}
-        <a href="mailto:support@joincopper.io">support@joincopper.io</a>.
+        <a href="mailto:info@joincopper.io">info@joincopper.io</a>.
       </p>
 
       <h2>The short version</h2>
@@ -123,7 +123,7 @@ export default function PrivacyPage() {
       <h2>Your rights</h2>
       <p>
         You can export your data or delete your account at any time by
-        emailing <a href="mailto:support@joincopper.io">support@joincopper.io</a>.
+        emailing <a href="mailto:info@joincopper.io">info@joincopper.io</a>.
         We&apos;ll respond within 7 days.
       </p>
 

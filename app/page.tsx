@@ -852,7 +852,7 @@ function SiteFooter() {
           </div>
           <p className="text-sm text-ink-500 max-w-xs leading-relaxed">
             AI receptionist for owner-operated home services. Built in
-            California.
+            Texas.
           </p>
         </div>
         <FooterCol
@@ -875,7 +875,7 @@ function SiteFooter() {
         <FooterCol
           title="Get help"
           links={[
-            { label: "support@joincopper.io", href: "mailto:support@joincopper.io" },
+            { label: "info@joincopper.io", href: "mailto:info@joincopper.io" },
           ]}
         />
       </div>

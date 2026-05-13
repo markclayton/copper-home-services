@@ -1,4 +1,4 @@
-import { Mail, MessageSquare, Phone } from "lucide-react";
+import { Mail } from "lucide-react";
 import { MarketingShell } from "@/components/marketing/marketing-shell";
 
 export const metadata = {
@@ -13,22 +13,16 @@ export default function ContactPage() {
       subtitle="Real humans, on the other side of the email."
     >
       <p className="text-base">
-        We&apos;re a small team. We answer our own support emails — usually
-        within a few hours, always within one business day.
+        We&apos;re a small team. We answer our own emails — usually within a
+        few hours, always within one business day.
       </p>
 
-      <div className="not-prose mt-10 grid sm:grid-cols-2 gap-4">
+      <div className="not-prose mt-10">
         <ContactCard
           icon={<Mail size={18} className="text-copper-600" />}
           label="Email"
-          value="support@joincopper.io"
-          href="mailto:support@joincopper.io"
-        />
-        <ContactCard
-          icon={<MessageSquare size={18} className="text-copper-600" />}
-          label="Sales"
-          value="sales@joincopper.io"
-          href="mailto:sales@joincopper.io"
+          value="info@joincopper.io"
+          href="mailto:info@joincopper.io"
         />
       </div>
 
