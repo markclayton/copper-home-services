@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import {
   type BusinessStepState,
 } from "@/app/onboard/business/actions";
 import type { Business } from "@/lib/db/schema";
+import { formatPhone, isValidUsPhone } from "@/lib/format";
 
 const INITIAL: BusinessStepState = { ok: false };
 
@@ -27,6 +28,15 @@ export function BusinessStepForm({ business }: { business: Business }) {
     saveBusinessStep,
     INITIAL,
   );
+  const [phone, setPhone] = useState(business.ownerPhone ?? "");
+  const [phoneTouched, setPhoneTouched] = useState(false);
+
+  // Only flag invalid once the user has interacted with the field — avoids
+  // showing red text on a freshly-loaded empty form.
+  const phoneError =
+    phoneTouched && phone.trim().length > 0 && !isValidUsPhone(phone);
+  const phonePreview =
+    !phoneError && isValidUsPhone(phone) ? formatPhone(phone) : null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -71,13 +81,30 @@ export function BusinessStepForm({ business }: { business: Business }) {
             id="ownerPhone"
             name="ownerPhone"
             type="tel"
-            defaultValue={business.ownerPhone ?? ""}
-            placeholder="+1 555 123 4567"
+            inputMode="tel"
+            autoComplete="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            onBlur={() => setPhoneTouched(true)}
+            placeholder="(555) 123-4567"
+            aria-invalid={phoneError || undefined}
             required
           />
-          <p className="text-xs text-muted-foreground">
-            Where we&apos;ll text you call summaries and emergency alerts.
-          </p>
+          {phoneError ? (
+            <p className="text-xs text-destructive">
+              Enter a valid US phone number, e.g. (555) 123-4567.
+            </p>
+          ) : phonePreview ? (
+            <p className="text-xs text-muted-foreground">
+              We&apos;ll save this as{" "}
+              <span className="font-mono">{phonePreview}</span>. Where we
+              text you call summaries and emergency alerts.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Where we&apos;ll text you call summaries and emergency alerts.
+            </p>
+          )}
         </div>
 
         <div className="grid gap-2">

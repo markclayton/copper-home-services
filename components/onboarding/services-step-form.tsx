@@ -1,21 +1,17 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  draftFromUrlAction,
   saveServicesStep,
-  type ServicesDraftState,
+  skipServicesStep,
   type ServicesStepState,
 } from "@/app/onboard/services/actions";
 import { ServicesEditor, type ServiceRow } from "./services-editor";
 import { FaqsEditor, type FaqRow } from "./faqs-editor";
 import type { KnowledgeBase } from "@/lib/db/schema";
 
-const DRAFT_INITIAL: ServicesDraftState = { ok: false };
 const SAVE_INITIAL: ServicesStepState = { ok: false };
 
 function asServices(value: unknown): ServiceRow[] {
@@ -47,61 +43,19 @@ export function ServicesStepForm({ kb }: { kb: KnowledgeBase | null }) {
   );
   const [faqs, setFaqs] = useState<FaqRow[]>(asFaqs(kb?.faqs));
 
-  const [draftState, draftAction, drafting] = useActionState(
-    draftFromUrlAction,
-    DRAFT_INITIAL,
-  );
   const [saveState, saveAction, saving] = useActionState(
     saveServicesStep,
     SAVE_INITIAL,
   );
-  const lastDraftRef = useRef<ServicesDraftState | null>(null);
-
-  if (draftState.ok && draftState.draft && draftState !== lastDraftRef.current) {
-    lastDraftRef.current = draftState;
-    const d = draftState.draft;
-    if (d.services?.length) setServices(asServices(d.services));
-    if (d.faqs?.length) setFaqs(asFaqs(d.faqs));
-  }
 
   return (
     <div className="flex flex-col gap-2">
       <h1 className="text-2xl font-semibold">Services and FAQs</h1>
       <p className="text-sm text-muted-foreground mb-4">
-        What you offer, and the questions callers always ask. Use the AI
-        drafter if you have a website to save typing.
+        What you offer, and the questions callers always ask. The AI uses
+        these to answer customers directly without bothering you. You can
+        skip this and come back later — your dashboard will remind you.
       </p>
-
-      <form
-        action={draftAction}
-        className="rounded-md border bg-muted/30 p-4 mb-2"
-      >
-        <div className="flex gap-3 items-end">
-          <div className="flex-1">
-            <Label htmlFor="websiteUrl" className="flex items-center gap-1.5">
-              <Sparkles size={14} /> Draft from your website (optional)
-            </Label>
-            <Input
-              id="websiteUrl"
-              name="websiteUrl"
-              type="url"
-              placeholder="https://your-business.com"
-              className="mt-1"
-            />
-          </div>
-          <Button type="submit" disabled={drafting} variant="outline">
-            {drafting ? "Reading…" : "Draft"}
-          </Button>
-        </div>
-        {draftState.error && (
-          <p className="text-sm text-destructive mt-2">{draftState.error}</p>
-        )}
-        {draftState.ok && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Draft generated — review and edit below before continuing.
-          </p>
-        )}
-      </form>
 
       <form action={saveAction} className="flex flex-col gap-6">
         <input type="hidden" name="services" value={JSON.stringify(services)} />
@@ -129,13 +83,23 @@ export function ServicesStepForm({ kb }: { kb: KnowledgeBase | null }) {
           <p className="text-sm text-destructive">{saveState.error}</p>
         )}
 
-        <div className="flex justify-between pt-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
           <Button asChild variant="ghost">
             <a href="/onboard/business">Back</a>
           </Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Continue"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="submit"
+              variant="ghost"
+              formAction={skipServicesStep}
+              disabled={saving}
+            >
+              Skip for now
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving…" : "Continue"}
+            </Button>
+          </div>
         </div>
       </form>
     </div>

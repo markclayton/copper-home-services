@@ -12,6 +12,11 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
 
   DATABASE_URL: z.string().url(),
+  // Optional separate connection string for migrations. Use Supabase's
+  // "Direct connection" or "Session pooler" string here, since drizzle-kit
+  // needs prepared statements which the transaction pooler strips. Falls
+  // back to DATABASE_URL when unset.
+  DIRECT_URL: z.string().url().optional(),
 
   INTERNAL_WEBHOOK_SECRET: z.string().min(16).optional(),
 

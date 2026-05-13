@@ -20,6 +20,7 @@ import {
   CallOutcomeBadge,
   EmergencyBadge,
 } from "@/components/dashboard/badges";
+import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
 import { PhoneNumberCard } from "@/components/dashboard/phone-number-card";
 import {
   getTodayCalls,
@@ -53,6 +54,8 @@ export default async function TodayPage() {
           }).format(new Date())}
         </p>
       </div>
+
+      <OnboardingChecklist businessId={business.id} />
 
       {business.twilioNumber && (
         <PhoneNumberCard phone={business.twilioNumber} />

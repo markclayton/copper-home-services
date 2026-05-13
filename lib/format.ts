@@ -64,3 +64,34 @@ export function formatPhone(phone: string | null): string {
   }
   return phone;
 }
+
+/**
+ * Normalize a US/Canada phone number to E.164 format (+15551234567).
+ * Accepts: "(555) 123-4567", "555-123-4567", "5551234567", "15551234567",
+ * "+1 555 123 4567", etc. Returns null if the input doesn't parse as a valid
+ * NANP number (10 digits, area code + exchange both starting with 2-9).
+ */
+export function normalizeUsPhone(
+  input: string | null | undefined,
+): string | null {
+  if (!input) return null;
+  const digits = input.replace(/[^0-9]/g, "");
+  let national: string;
+  if (digits.length === 10) national = digits;
+  else if (digits.length === 11 && digits.startsWith("1"))
+    national = digits.slice(1);
+  else return null;
+
+  // NANP rules: area code (first digit) and exchange (fourth digit) can't
+  // start with 0 or 1. Rules out "0001234567", "1112223333", etc.
+  if (national[0] === "0" || national[0] === "1") return null;
+  if (national[3] === "0" || national[3] === "1") return null;
+
+  return `+1${national}`;
+}
+
+export function isValidUsPhone(
+  input: string | null | undefined,
+): boolean {
+  return normalizeUsPhone(input) !== null;
+}

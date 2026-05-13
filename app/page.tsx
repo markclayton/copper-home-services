@@ -741,7 +741,7 @@ function Faq() {
     },
     {
       q: "How long until it's live?",
-      a: "Under an hour for self-serve. The longest step is filling out your services and hours — and we'll draft most of it from your website if you paste a URL.",
+      a: "Under an hour for self-serve. The longest step is filling out your services and hours so the AI knows what to quote and when to book — most owners knock it out in 10-15 minutes.",
     },
     {
       q: "What if my customer wants to talk to a human?",

@@ -129,7 +129,11 @@ bun install
 cp .env.example .env.local
 ```
 
-Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `DATABASE_URL` (Supabase → Project Settings → Database → "Direct connection" string). Everything else is optional and can be filled in as you wire each integration.
+Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and the two database URLs from Supabase → Project Settings → Database:
+- `DATABASE_URL` → **Transaction pooler** string (port 6543, with `?pgbouncer=true` appended). The app's runtime queries go through this.
+- `DIRECT_URL` → **Direct connection** or **Session pooler** string (port 5432). Used only by drizzle-kit for migrations. If you omit it, drizzle-kit falls back to `DATABASE_URL` and migrations will fail with a prepared-statement error.
+
+Everything else is optional and can be filled in as you wire each integration.
 
 ### 2. Migrate the database
 
@@ -201,8 +205,15 @@ You can then sign in at `/auth/login` and land in `/dashboard`.
 
 Things that bit me during the first end-to-end run. Read before debugging.
 
-### Supabase direct connection is IPv6-only on the free tier
-The "Direct connection" string at `db.<ref>.supabase.co:5432` won't connect from most home networks. Use the **Session pooler** string instead (looks like `postgres://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres`). Username is `postgres.<project_ref>`, not bare `postgres`. Works for both migrations and runtime; switch to the transaction pooler later only if you need it.
+### Two database URLs: transaction pooler for runtime, direct/session for migrations
+You need both `DATABASE_URL` and `DIRECT_URL` configured. They serve different roles:
+- `DATABASE_URL` → **Transaction pooler** (port 6543, append `?pgbouncer=true`). The app uses this for every query at runtime. Connection pooling is per-transaction so hundreds of concurrent requests share a small physical pool. Required for serverless / Next.js — without it you'll hit `EMAXCONNSESSION` ("max clients reached in session mode") as soon as parallel queries on the dashboard pile up.
+- `DIRECT_URL` → **Direct connection** (port 5432 at `db.<ref>.supabase.co`) or **Session pooler** (port 5432 on the pooler host). `drizzle-kit` (migrations / generate / studio) needs prepared statements, which the transaction pooler strips. If `DIRECT_URL` is unset, `drizzle.config.ts` falls back to `DATABASE_URL` and migrations break.
+
+The direct connection at `db.<ref>.supabase.co:5432` is IPv6-only on the Supabase free tier and won't reach from most home networks — in that case use the **Session pooler** string (`postgres://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres`) for `DIRECT_URL`. Username is `postgres.<project_ref>`, not bare `postgres`.
+
+### `EMAXCONNSESSION` / "max clients reached in session mode"
+Symptom: queries on `/dashboard` start failing with `(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15`. Cause: `DATABASE_URL` points at the session pooler (port 5432) instead of the transaction pooler (port 6543). Session mode binds one connection per client for the whole session, capped at 15. Fix: swap to the transaction pooler string per the entry above, restart `bun dev` so the cached postgres client picks it up.
 
 ### `NEXT_PUBLIC_*` env vars are baked into client JS at dev-server start
 If you change `.env.local` (Supabase URL, key, etc.) while `bun dev` is running, the browser still has the old (or undefined) values. Symptom: `supabase.auth.signUp()` does nothing, no network request, console silent. Fix: Ctrl-C `bun dev`, restart, hard-refresh browser.

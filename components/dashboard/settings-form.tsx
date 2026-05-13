@@ -141,9 +141,10 @@ export function SettingsForm({
           <FormField label="Owner email" name="ownerEmail" type="email" defaultValue={business.ownerEmail} required />
           <FormField label="Owner phone" name="ownerPhone" defaultValue={business.ownerPhone} required />
           <FormField
-            label="Service area ZIPs (comma-separated)"
+            label="Service area ZIPs (optional)"
             name="serviceAreaZips"
             defaultValue={(business.serviceAreaZips ?? []).join(", ")}
+            placeholder="94102, 94103, 94110"
           />
           <div className="md:col-span-2">
             <FormField
