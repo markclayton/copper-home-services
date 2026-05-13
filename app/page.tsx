@@ -11,6 +11,7 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
+import { CopperLogo } from "@/components/copper-logo";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function Home() {
@@ -41,7 +42,7 @@ function SiteHeader({ isAuthed }: { isAuthed: boolean }) {
     <header className="border-b border-ink/10 bg-cream-100/90 backdrop-blur sticky top-0 z-50">
       <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2 group">
-          <CopperMark />
+          <CopperLogo className="h-10 w-auto" priority />
           <span className="font-display text-xl tracking-tight">Copper</span>
         </Link>
         <nav className="hidden md:flex items-center gap-8 text-sm text-ink-700">
@@ -85,14 +86,6 @@ function SiteHeader({ isAuthed }: { isAuthed: boolean }) {
         </div>
       </div>
     </header>
-  );
-}
-
-function CopperMark() {
-  return (
-    <div className="relative h-7 w-7 grid place-items-center rounded-md bg-copper text-cream-100 shadow-[inset_0_-2px_0_rgba(0,0,0,0.18)]">
-      <span className="font-display font-bold text-sm leading-none">C</span>
-    </div>
   );
 }
 
@@ -854,8 +847,8 @@ function SiteFooter() {
       <div className="mx-auto max-w-6xl px-6 py-14 grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <CopperMark />
-            <span className="font-display text-xl">Copper</span>
+            <CopperLogo className="h-9 w-auto" />
+            <span className="font-display text-xl tracking-tight">Copper</span>
           </div>
           <p className="text-sm text-ink-500 max-w-xs leading-relaxed">
             AI receptionist for owner-operated home services. Built in

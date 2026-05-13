@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { CopperLogo } from "@/components/copper-logo";
 
 export function MarketingShell({
   title,
@@ -17,11 +18,7 @@ export function MarketingShell({
       <header className="border-b border-ink/10 bg-cream-100">
         <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <div className="h-7 w-7 grid place-items-center rounded-md bg-copper text-cream-100 shadow-[inset_0_-2px_0_rgba(0,0,0,0.18)]">
-              <span className="font-display font-bold text-sm leading-none">
-                C
-              </span>
-            </div>
+            <CopperLogo className="h-10 w-auto" priority />
             <span className="font-display text-xl tracking-tight">Copper</span>
           </Link>
           <Link

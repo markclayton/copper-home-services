@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { LifeBuoy } from "lucide-react";
+import { CopperLogo } from "@/components/copper-logo";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { LogoutButton } from "@/components/logout-button";
@@ -27,8 +28,14 @@ export default function DashboardLayout({
         <div className="flex h-14 items-center justify-between px-3 md:px-4 gap-2">
           <div className="flex items-center gap-2 md:gap-3 min-w-0">
             <MobileNav />
-            <Link href="/dashboard" className="font-semibold shrink-0">
-              Copper
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-1.5 shrink-0"
+            >
+              <CopperLogo className="h-8 w-auto" priority />
+              <span className="font-display text-lg tracking-tight">
+                Copper
+              </span>
             </Link>
             <span className="text-muted-foreground hidden sm:inline">/</span>
             <Suspense
