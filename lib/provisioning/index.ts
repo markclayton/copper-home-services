@@ -3,13 +3,16 @@
  *
  * Order of operations:
  *   1. Buy a Twilio local number (skip if business.twilioNumber already set)
- *   2. Register that number with Vapi (skip if vapiPhoneNumberId set)
- *   3. Create or update the Vapi assistant (always run; cheap and ensures the
- *      prompt reflects current KB)
- *   4. Link the phone number to the assistant
- *   5. Persist all IDs on the businesses row
+ *   2. Attach the number to the A2P 10DLC Messaging Service for SMS
+ *   3. Register that number with Vapi (skip if vapiPhoneNumberId set)
+ *   4. Deploy/update the Vapi assistant (always run; cheap, keeps prompt fresh)
+ *   5. Create a Stripe customer (idempotent, soft-fail if not configured)
+ *   6. Link the phone number to the assistant
  *
- * Stripe customer creation lands in Round 4.
+ * Calendar is connected separately by the owner via OAuth (see
+ * /api/integrations/google-calendar/connect) — it's intentionally NOT
+ * touched here, because Copper doesn't have credentials to act on the
+ * tenant's behalf until they grant them.
  */
 
 import { eq } from "drizzle-orm";
@@ -24,7 +27,6 @@ import {
 } from "@/lib/voice/vapi";
 import { deployAssistant } from "@/lib/voice/deploy";
 import { createCustomer } from "@/lib/billing/stripe";
-import { createEventType } from "@/lib/booking/cal";
 
 export type ProvisionStep =
   | { name: string; status: "skipped" | "ok"; detail?: string }
@@ -62,7 +64,6 @@ export async function provisionTenant(
   let twilioPhoneSid = businessRow.twilioSubaccountSid;
   let vapiPhoneNumberId = businessRow.vapiPhoneNumberId;
   let vapiAssistantId = businessRow.vapiAssistantId;
-  let calComEventTypeId = businessRow.calComEventTypeId;
 
   const demoMode = !!(
     env.DEMO_TWILIO_NUMBER && env.DEMO_VAPI_PHONE_NUMBER_ID
@@ -216,53 +217,6 @@ export async function provisionTenant(
       });
       return { businessId, steps, ok: false };
     }
-  }
-
-  // Step 2.5: Cal.com event type (idempotent, soft-fail if not configured).
-  // Must run before deployAssistant so the assistant prompt + tools see a
-  // valid event type id.
-  if (calComEventTypeId) {
-    steps.push({
-      name: "cal-event-type",
-      status: "skipped",
-      detail: calComEventTypeId,
-    });
-  } else if (env.CAL_COM_API_KEY) {
-    try {
-      const slug = `${businessRow.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 30)}-${businessId.slice(0, 8)}`;
-      const eventType = await createEventType({
-        title: `${businessRow.name} — Service Visit`,
-        slug,
-        lengthInMinutes: 60,
-        description: "Service visit booked through the AI receptionist.",
-      });
-      calComEventTypeId = String(eventType.id);
-      await db
-        .update(businesses)
-        .set({ calComEventTypeId, updatedAt: new Date() })
-        .where(eq(businesses.id, businessId));
-      steps.push({
-        name: "cal-event-type",
-        status: "ok",
-        detail: calComEventTypeId,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      steps.push({ name: "cal-event-type", status: "failed", detail: message });
-      await logProvisionEvent(businessId, "provision.cal_event_type.failed", {
-        message,
-      });
-    }
-  } else {
-    steps.push({
-      name: "cal-event-type",
-      status: "skipped",
-      detail: "CAL_COM_API_KEY not set",
-    });
   }
 
   // Step 3: deploy assistant (always — keeps prompt fresh)

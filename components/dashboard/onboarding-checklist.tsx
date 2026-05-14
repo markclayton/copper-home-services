@@ -9,11 +9,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { knowledgeBase } from "@/lib/db/schema";
+import { businesses, knowledgeBase } from "@/lib/db/schema";
 
 /**
- * Dashboard nudge for new tenants who skipped Services/FAQs during
- * onboarding. Auto-hides once both are filled in — there's no dismiss
+ * Dashboard nudge for new tenants who skipped Services/FAQs/Calendar during
+ * onboarding. Auto-hides once all three are done — there's no dismiss
  * button by design: the AI noticeably underperforms without these, so we
  * keep nudging until the owner gets the message.
  */
@@ -28,22 +28,29 @@ export async function OnboardingChecklist({
     .where(eq(knowledgeBase.businessId, businessId))
     .limit(1);
 
+  const [biz] = await db
+    .select({ calendarProvider: businesses.calendarProvider })
+    .from(businesses)
+    .where(eq(businesses.id, businessId))
+    .limit(1);
+
   const services = Array.isArray(kb?.services) ? kb.services : [];
   const faqs = Array.isArray(kb?.faqs) ? kb.faqs : [];
 
   const hasServices = services.length > 0;
   const hasFaqs = faqs.length > 0;
+  const hasCalendar = !!biz?.calendarProvider;
 
-  if (hasServices && hasFaqs) return null;
+  if (hasServices && hasFaqs && hasCalendar) return null;
 
   return (
     <Card className="border-primary/30 bg-primary/5">
       <CardHeader>
         <CardTitle className="text-base">Finish setting up your AI</CardTitle>
         <CardDescription>
-          Your AI works best when it knows what you offer and the questions
-          customers ask. Without these, it can&apos;t quote prices or answer
-          common questions — it just escalates everything to you.
+          Your AI works best when it knows what you offer, the questions
+          customers ask, and your real availability. Without these, it
+          can&apos;t quote, answer common questions, or book.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -58,6 +65,11 @@ export async function OnboardingChecklist({
             label="Add FAQs"
             hint="Common questions you get asked. Saves you from being interrupted."
           />
+          <ChecklistItem
+            done={hasCalendar}
+            label="Connect your calendar"
+            hint="Without this the AI can't see your schedule or book appointments."
+          />
         </ul>
         <div>
           <Link
@@ -71,6 +83,7 @@ export async function OnboardingChecklist({
     </Card>
   );
 }
+
 
 function ChecklistItem({
   done,

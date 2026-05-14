@@ -20,7 +20,8 @@ import { env } from "@/lib/env";
 import { getTwilioClient } from "@/lib/telephony/twilio";
 import { getStripe } from "@/lib/billing/stripe";
 import { deleteAssistant, deletePhoneNumber } from "@/lib/voice/vapi";
-import { deleteEventType } from "@/lib/booking/cal";
+import { revokeRefreshToken } from "@/lib/booking/google";
+import { decryptToken } from "@/lib/crypto/tokens";
 
 export type DeprovisionStep =
   | { name: string; status: "skipped" | "ok"; detail?: string }
@@ -125,29 +126,23 @@ export async function deprovisionTenant(
     steps.push({ name: "vapi-phone-number", status: "skipped" });
   }
 
-  // Cal.com event type — one per tenant, always safe to delete.
-  if (business.calComEventTypeId) {
-    const eventTypeId = Number.parseInt(business.calComEventTypeId, 10);
-    if (Number.isNaN(eventTypeId)) {
+  // Google Calendar — revoke our refresh token so we lose access to the
+  // tenant's calendar immediately. Best-effort; Google returns 4xx when the
+  // token is already revoked or expired, which is the desired end state.
+  if (business.calendarProvider === "google" && business.calendarRefreshTokenEnc) {
+    try {
+      const refresh = decryptToken(business.calendarRefreshTokenEnc);
+      await revokeRefreshToken(refresh);
+      steps.push({ name: "google-calendar-revoke", status: "ok" });
+    } catch (err) {
       steps.push({
-        name: "cal-event-type",
-        status: "skipped",
-        detail: `unparseable id: ${business.calComEventTypeId}`,
+        name: "google-calendar-revoke",
+        status: "failed",
+        detail: errMessage(err),
       });
-    } else {
-      try {
-        await deleteEventType(eventTypeId);
-        steps.push({ name: "cal-event-type", status: "ok" });
-      } catch (err) {
-        steps.push({
-          name: "cal-event-type",
-          status: "failed",
-          detail: errMessage(err),
-        });
-      }
     }
   } else {
-    steps.push({ name: "cal-event-type", status: "skipped" });
+    steps.push({ name: "google-calendar-revoke", status: "skipped" });
   }
 
   // Twilio number — skip in demo mode (shared resource). twilioSubaccountSid

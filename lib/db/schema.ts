@@ -26,6 +26,7 @@ export const onboardingStep = pgEnum("onboarding_step", [
   "services",
   "hours",
   "voice",
+  "calendar",
   "plan",
   "provisioning",
   "complete",
@@ -100,6 +101,11 @@ export const contactSource = pgEnum("contact_source", [
   "manual",
 ]);
 
+export const calendarProvider = pgEnum("calendar_provider", [
+  "google",
+  "microsoft",
+]);
+
 const businessOwnerCheck = sql`exists (select 1 from public.businesses b where b.id = business_id and b.owner_user_id = (select auth.uid()))`;
 
 export type NotifyEvent = "appointment" | "emergency" | "callSummary";
@@ -126,7 +132,13 @@ export const businesses = pgTable(
     phoneForwarding: text(),
     serviceAreaZips: text().array(),
     hours: jsonb(),
-    calComEventTypeId: text(),
+    calendarProvider: calendarProvider(),
+    calendarAccountEmail: text(),
+    calendarId: text(),
+    calendarRefreshTokenEnc: text(),
+    calendarAccessTokenEnc: text(),
+    calendarTokenExpiresAt: timestamp({ withTimezone: true }),
+    calendarConnectedAt: timestamp({ withTimezone: true }),
     vapiAssistantId: text(),
     twilioSubaccountSid: text(),
     twilioNumber: text(),

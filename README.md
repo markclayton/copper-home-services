@@ -21,7 +21,7 @@ Built against [`flagship-v1-prd.md`](./flagship-v1-prd.md). V1 success criteria:
 | DB | Supabase Postgres + RLS |
 | ORM / migrations | Drizzle |
 | Frontend | Next.js + Tailwind + shadcn/ui |
-| Booking | Cal.com (managed, v2 API) |
+| Booking | Google Calendar (OAuth per-tenant; Microsoft Outlook planned) |
 | Background jobs | Inngest |
 | LLM (summaries) | OpenRouter via OpenAI SDK (default: `anthropic/claude-sonnet-4.5`); Vapi handles in-call model separately |
 | Payments | Stripe (Checkout + customer portal) |
@@ -49,7 +49,7 @@ Customer phone ─► Twilio number ─► Vapi assistant
                        │                ▼
                        │     OpenRouter summarize → calls row
                        ▼
-              book_appointment ─► Cal.com booking ─► customer SMS + owner SMS
+              book_appointment ─► tenant's Google Calendar ─► customer SMS + owner SMS
                                                           │
                                                           ▼
                                               Inngest "appointment/booked"
@@ -94,7 +94,8 @@ lib/
   db/{index.ts,schema.ts,queries.ts,migrations/}   # Drizzle
   voice/{types.ts,prompt-template.ts,tools.ts,tool-handlers.ts,vapi.ts,deploy.ts}
   telephony/twilio.ts                              # SMS send + client
-  booking/cal.ts                                   # Cal.com v2 client
+  booking/google.ts                                # Google Calendar (freeBusy + events.insert)
+  crypto/tokens.ts                                 # AES-GCM for OAuth tokens at rest
   ai/llm.ts                                        # call summarization (OpenRouter)
   jobs/{client.ts,functions.ts}                    # Inngest
   billing/stripe.ts                                # Stripe client
@@ -120,7 +121,7 @@ scripts/
 
 - [Bun](https://bun.com) 1.3+
 - Supabase project (free tier works)
-- Optional but needed for full E2E: Vapi, Twilio, OpenRouter, Cal.com, Stripe, Inngest accounts
+- Optional but needed for full E2E: Vapi, Twilio, OpenRouter, Google Cloud (Calendar OAuth), Stripe, Inngest accounts
 
 ### 1. Install + env
 
@@ -276,7 +277,6 @@ When both are set, `provisionTenant`:
 - **Uses the demo number** for steps `twilio-number` and `vapi-phone-number` instead of buying / registering new
 - **Skips `a2p-attach`** (the demo number is already attached, or doesn't need it for testing)
 - **Still creates a unique Vapi assistant** per tenant — brand voice, prompt, and KB are real
-- **Still creates a unique Cal.com event type** per tenant
 - **Re-links the demo number to the latest signup's assistant** in `link-phone-to-assistant` (last-write-wins on the inbound voice route)
 
 **Trade-off:** only one tenant at a time can have their AI answer the shared number. If two friends sign up back-to-back, the second signup overwrites the first's voice routing. Their dashboards still work independently; just calling in resolves to whoever signed up most recently.
@@ -298,7 +298,7 @@ Run through this before flipping DNS at a new domain. Order matters — the env 
 
 **Standard env:**
 - [ ] `APP_URL` set to the prod origin (no trailing slash)
-- [ ] All Supabase + Stripe + Twilio + Vapi + OpenRouter + Cal.com + Inngest keys set
+- [ ] All Supabase + Stripe + Twilio + Vapi + OpenRouter + Google Calendar + Inngest keys set
 - [ ] `RESEND_API_KEY` + `NOTIFICATIONS_EMAIL_FROM` (or leave unset — email cleanly no-ops)
 - [ ] `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (build-time only)
 - [ ] `TWILIO_MESSAGING_SERVICE_SID` once A2P 10DLC is approved
@@ -312,6 +312,12 @@ Run through this before flipping DNS at a new domain. Order matters — the env 
 - [ ] Supabase Auth → Site URL + Redirect URLs allowlist updated to prod domain
 - [ ] Inngest Cloud → serve URL `https://<prod-domain>/api/inngest`, then click Sync
 - [ ] For any tenant whose Vapi assistant was provisioned against an ngrok URL: re-run `bun provision <id>` to redeploy with prod URLs
+
+**Google OAuth verification (BLOCKER before public launch):**
+- [ ] Production redirect URI `https://<prod-domain>/api/integrations/google-calendar/callback` added to the calendar OAuth client (separate client from Supabase auth — see [Google Calendar setup](#google-calendar-per-tenant-oauth))
+- [ ] OAuth consent screen submitted for verification — calendar scopes (`calendar.events`, `calendar.freebusy`) are **sensitive** and require Google review. Takes 2–6 weeks. While in "Testing" mode you're capped at 100 test users and refresh tokens expire after 7 days, which is fine for private beta but **will break customer onboarding the moment you go public**.
+- [ ] Demo video recorded + linked in the verification request (Google asks for one ~80% of the time — preempt the round trip). 1–3 min unlisted YouTube showing: consent flow, in-app booking creating a calendar event, disconnect flow revoking access.
+- [ ] App **published** (consent screen → "Publish App") once verification clears. Until then the yellow unverified-app warning shows on every consent screen.
 
 **Smoke test after deploy:**
 - [ ] `/` loads with the new landing page; favicon shows the copper "C"
@@ -423,14 +429,46 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 
 **Cost**: ~$2/mo per campaign + per-message carrier fees (fractions of a cent). Total carrier deposits vary.
 
-**While you wait**: voice flows, tool invocations, Cal.com bookings, dashboard updates — all work fine. Only actual SMS delivery is blocked. Use the `events` table to verify the system *would have* sent SMS if approval were complete.
+**While you wait**: voice flows, tool invocations, calendar bookings, dashboard updates — all work fine. Only actual SMS delivery is blocked. Use the `events` table to verify the system *would have* sent SMS if approval were complete.
 
 **Throughput**: a single Campaign covers all your customer numbers. Per-second message limits scale with Brand vetting tier (Sole Prop < Standard < Verified), not with number count. If you outgrow throughput, register a higher tier — not more campaigns.
 
-### Cal.com
+### Google Calendar (per-tenant OAuth)
 
-- Create account or use a self-hosted instance. Note the API key.
-- Each tenant needs an event type ID stored in `businesses.cal_com_event_type_id`. The provisioning script does not auto-create event types yet — set this manually until that flow is built.
+Each tenant connects their own Google Calendar via OAuth. The AI reads their availability and creates events on their calendar — no shared platform account, no per-tenant API keys to manage by hand. Microsoft Outlook is planned.
+
+**One-time setup** (platform-wide):
+
+1. **Create a dedicated OAuth client** at <https://console.cloud.google.com/apis/credentials> — **separate from your Supabase auth client**. Reusing the auth client would pull the login flow into verification with sensitive calendar scopes attached, breaking unverified sign-ins. Same GCP project is fine; just create a second client of type **Web application**.
+   - Authorized redirect URI: `${APP_URL}/api/integrations/google-calendar/callback` (add both your local + production URLs)
+2. **Enable the Google Calendar API** for the project.
+3. **Configure OAuth consent screen**:
+   - User type: **External**
+   - Scopes: `calendar.events`, `calendar.freebusy`, `userinfo.email`
+   - Add test users while the app is in "Testing" mode; submit for verification before going to "Production" (Google verification takes 2-6 weeks for sensitive scopes).
+4. **Set env vars**:
+   - `GOOGLE_CALENDAR_CLIENT_ID` — from the OAuth client
+   - `GOOGLE_CALENDAR_CLIENT_SECRET` — from the OAuth client
+   - `CALENDAR_TOKEN_KEY` — generate with `openssl rand -hex 32`. This AES-GCM key encrypts refresh tokens at rest. **Do not rotate in production without re-connecting all tenants** — existing tokens become unreadable.
+
+**Verification path before public launch:**
+
+Calendar scopes are **sensitive** (not restricted — those need a full third-party security audit). Sensitive verification is much lighter weight but still needed.
+
+- **In "Testing" mode** (default): only listed test users can connect. Refresh tokens expire after 7 days. Yellow "unverified app" banner shown on every consent screen. Fine for private beta.
+- **Submit for verification** when you're ready to scale past 100 test users:
+  1. Have a privacy policy + terms URL live (we have `/privacy` + `/terms`).
+  2. Verify your app domain at <https://search.google.com/search-console> (DNS or HTML file method).
+  3. On the OAuth consent screen, click **Submit for verification**. Google's form asks for a written justification per sensitive scope and almost always asks for a 1–3 minute unlisted YouTube demo. Preempt the demo by attaching one upfront — it cuts the typical timeline from 4-6 weeks to 2-3.
+  4. Google may follow up with clarifying questions. Reply within 5 business days or they close the request.
+- **Once approved**: click **Publish App**. The unverified banner disappears, the 100-user cap lifts, refresh tokens become durable.
+
+**Per-tenant**: the owner clicks "Connect" in the onboarding wizard (skippable) or in `/dashboard/settings → Integrations`. Refresh + access tokens land encrypted on `businesses.calendar_refresh_token_enc` / `calendar_access_token_enc`. The voice agent reads them via `lib/booking/google.ts`, which auto-refreshes the access token when it expires.
+
+**Booking layer** (`lib/booking/google.ts`):
+- `getFreeSlots(business, { startDate, endDate })` — calls `freeBusy.query`, overlays business hours from `businesses.hours`, returns aligned slots
+- `createBooking(business, args)` — `events.insert` on the tenant's primary calendar
+- `revokeRefreshToken(token)` — used at account delete to sever access immediately
 
 ### Stripe
 
@@ -488,8 +526,8 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] Missed-call text-back fired on `status-update: in-progress` (idempotent per Vapi call ID)
 
 ### AI tools (called mid-call)
-- [x] `get_available_slots` → Cal.com slot lookup
-- [x] `book_appointment` → real Cal.com booking + appointment row + customer SMS (sync); owner notification fans out async via Inngest `appointment/booked`
+- [x] `get_available_slots` → Google Calendar freeBusy + business-hours slot computation
+- [x] `book_appointment` → tenant's Google Calendar (`events.insert`) + appointment row + customer SMS (sync); owner notification fans out async via Inngest `appointment/booked`. Falls back to "owner will call you back" when calendar isn't connected.
 - [x] `lookup_existing_customer` → contacts table query
 - [x] `send_emergency_alert` → fires `emergency/detected` Inngest event for async owner notification (no longer blocks the AI mid-call)
 - [x] `send_quote_followup` → fires `tool/quote-followup` Inngest event
@@ -547,7 +585,7 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 
 ### Provisioning
 - [x] `provisionTenant(businessId)` orchestrator — idempotent, safe to re-run
-- [x] 7 steps, each env-gated and soft-failing: `twilio-number` → `a2p-attach` → `vapi-phone-number` → `cal-event-type` → `vapi-assistant` → `stripe-customer` → `link-phone-to-assistant`
+- [x] 6 steps, each env-gated and soft-failing: `twilio-number` → `a2p-attach` → `vapi-phone-number` → `vapi-assistant` → `stripe-customer` → `link-phone-to-assistant` (calendar is connected by the owner via OAuth post-provisioning)
 - [x] CLI: `bun provision <business_id> [--area-code 415]` (still useful for re-deploying after `APP_URL` changes or manual repair)
 - [x] Inngest function `tenantProvisioning` runs the orchestrator on payment success and flips `status` to `live`
 
@@ -600,11 +638,11 @@ The first section is the **self-serve smoke test** — the primary flow new cust
 This validates that an unauthenticated visitor can go from `/onboard` to a working AI receptionist without any human intervention.
 
 **Prerequisites:**
-- All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Cal.com + Stripe + OpenRouter + Inngest.
+- All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Google Calendar + Stripe + OpenRouter + Inngest.
 - `STRIPE_PRICE_MRR` set to a recurring price ($500/mo). `STRIPE_PRICE_SETUP` left empty (self-serve has no setup fee).
 - `TWILIO_MESSAGING_SERVICE_SID` set so new numbers auto-attach to your A2P 10DLC Campaign. (Skip if you're using demo mode below.)
 - Stripe webhook endpoint configured to point at `https://<your-tunnel>/api/webhooks/stripe`.
-- Cal.com account is connected to a Google Calendar so booking has real availability.
+- A test tenant has connected their Google Calendar via `/dashboard/settings → Integrations` so booking has real availability.
 - Three terminals running: `bun dev`, `bun tunnel`, `bunx inngest-cli@latest dev`.
 
 **For repeated testing, enable demo mode** so each signup reuses Tenant Zero's number instead of buying a fresh one:
@@ -627,7 +665,7 @@ See **Dev gotchas → Demo provisioning mode** for the trade-offs.
 9. Check the email inbox you used. Supabase sent an invitation email with a magic link.
 10. Click the magic link → land in `/dashboard` for the new tenant. The Today page should show zeros + the new business name in the header.
 11. **Verify the system is wired** by calling the new Twilio number you can find via `select twilio_number from businesses order by created_at desc limit 1`. The AI should pick up with the brand voice you set.
-12. Have a brief conversation, request to book an appointment. Cal.com booking should succeed (auto-created event type) and SMS should deliver (A2P-attached number).
+12. Have a brief conversation, request to book an appointment. The booking should land on the connected Google Calendar and the confirmation SMS should deliver (A2P-attached number).
 
 **Diagnostic helpers if anything breaks:**
 
@@ -663,11 +701,11 @@ If any step fails, the rest of the testing checklist below tests individual feat
 
 ### 4. Booking flow (mid-call tool use)
 - [ ] Make a second call. Tell the AI: "I need an AC repair, can you check tomorrow morning?"
-- [ ] AI calls `get_available_slots` → reads back real slots from Cal.com
+- [ ] AI calls `get_available_slots` → reads back real slots from the tenant's Google Calendar
 - [ ] Pick one, confirm name + phone + address. AI calls `book_appointment`
 - [ ] AI confirms verbally; calling phone gets confirmation SMS
 - [ ] Owner phone gets booking alert SMS
-- [ ] Cal.com dashboard shows the new booking
+- [ ] The new event appears on the tenant's Google Calendar
 - [ ] **Bookings** page shows the upcoming appointment
 - [ ] Call detail page shows the linked appointment card
 
@@ -772,7 +810,7 @@ The self-serve flow (form → Stripe → webhook → Inngest → live) should co
 
 Most-common failure modes and fixes:
 - `twilio-number` failed with "no local numbers in area code" → the customer didn't specify an area code or it's out of stock. Manually run `bun provision <id> --area-code <other>` after the customer-supplied one fails.
-- `cal-event-type` failed → Cal.com API key invalid or hit rate limit. Re-run `bun provision <id>`.
+- AI says "I can't see the schedule directly" → tenant hasn't connected their calendar yet. They can connect via `/dashboard/settings → Integrations`.
 - `a2p-attach` failed → Messaging Service SID wrong or number ineligible. Skip via Twilio Console manual attach, then re-run provision.
 - `vapi-assistant` failed → usually means a model or voice ID Vapi rotated out. Edit `lib/voice/deploy.ts` and re-run provision.
 

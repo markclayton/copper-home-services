@@ -47,7 +47,15 @@ const envSchema = z.object({
 
   OPENROUTER_API_KEY: z.string().min(1).optional(),
 
-  CAL_COM_API_KEY: z.string().min(1).optional(),
+  // Calendar integration (Google now, Microsoft later). The client ID +
+  // secret come from a GCP OAuth client with the Calendar API enabled. The
+  // token key encrypts refresh/access tokens at rest — generate with
+  // `openssl rand -hex 32`.
+  GOOGLE_CALENDAR_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CALENDAR_CLIENT_SECRET: z.string().min(1).optional(),
+  CALENDAR_TOKEN_KEY: z.string().min(1).optional(),
+
+
 
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
@@ -106,6 +114,15 @@ function loadEnv(): Env {
     if (!parsed.data.INTERNAL_WEBHOOK_SECRET) {
       failures.push(
         "INTERNAL_WEBHOOK_SECRET must be set in production — the lead webhook is unauthenticated without it.",
+      );
+    }
+    if (
+      (parsed.data.GOOGLE_CALENDAR_CLIENT_ID ||
+        parsed.data.GOOGLE_CALENDAR_CLIENT_SECRET) &&
+      !parsed.data.CALENDAR_TOKEN_KEY
+    ) {
+      failures.push(
+        "CALENDAR_TOKEN_KEY must be set when Google Calendar OAuth is configured — refresh tokens are stored encrypted with this key.",
       );
     }
     if (failures.length > 0) {
