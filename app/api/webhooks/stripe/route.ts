@@ -5,6 +5,11 @@ import { db } from "@/lib/db";
 import { businesses, events } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { getStripe } from "@/lib/billing/stripe";
+import {
+  ACTIVE_STRIPE_STATUSES,
+  PROBLEM_STRIPE_STATUSES,
+  teardownDateFromNow,
+} from "@/lib/billing/lifecycle";
 import { inngest } from "@/lib/jobs/client";
 import { recordWebhookEvent } from "@/lib/db/webhook-idempotency";
 import { reportError } from "@/lib/observability";
@@ -178,19 +183,56 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
   const business = await findBusinessByCustomer(customerId);
   if (!business) return;
 
+  // Decide what the new tenant status should be based on the sub status.
+  //
+  //   active / trialing  → live   (and clear any pending teardown — they
+  //                                 reactivated during the grace window)
+  //   past_due / unpaid  → paused (Stripe will keep retrying the card;
+  //                                 don't schedule teardown yet)
+  //   anything else      → leave status alone (lets handleCheckoutCompleted
+  //                                 control the initial pending → live flip)
+  type StatusUpdate = {
+    stripeSubscriptionId: string;
+    stripeSubscriptionStatus: string;
+    updatedAt: Date;
+    status?: "live" | "paused";
+    scheduledTeardownAt?: Date | null;
+  };
+  const update: StatusUpdate = {
+    stripeSubscriptionId: sub.id,
+    stripeSubscriptionStatus: sub.status,
+    updatedAt: new Date(),
+  };
+
+  if (ACTIVE_STRIPE_STATUSES.has(sub.status)) {
+    // Reactivation path: was paused → going live again. Clear any pending
+    // teardown so the cron doesn't wipe them next morning.
+    if (business.status === "paused" || business.scheduledTeardownAt) {
+      update.status = "live";
+      update.scheduledTeardownAt = null;
+    }
+  } else if (PROBLEM_STRIPE_STATUSES.has(sub.status)) {
+    // Billing problem. Pause the dashboard so they're forced to fix the
+    // card on the /account-paused page, but don't schedule teardown yet —
+    // Stripe will keep retrying for ~3 weeks before flipping to canceled.
+    if (business.status === "live") {
+      update.status = "paused";
+    }
+  }
+
   await db
     .update(businesses)
-    .set({
-      stripeSubscriptionId: sub.id,
-      stripeSubscriptionStatus: sub.status,
-      updatedAt: new Date(),
-    })
+    .set(update)
     .where(eq(businesses.id, business.id));
 
   await db.insert(events).values({
     businessId: business.id,
     type: "stripe.subscription.updated",
-    payload: { subscriptionId: sub.id, status: sub.status },
+    payload: {
+      subscriptionId: sub.id,
+      status: sub.status,
+      tenantStatus: update.status ?? business.status,
+    },
   });
 }
 
@@ -199,10 +241,21 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
   const business = await findBusinessByCustomer(customerId);
   if (!business) return;
 
+  // Subscription fully canceled. Pause the dashboard immediately and
+  // schedule teardown 14 days out. The daily Inngest cron picks it up
+  // and runs deprovisionTenant on the scheduled date.
+  //
+  // If they reactivate inside the window, handleSubscriptionUpdated above
+  // clears scheduledTeardownAt and flips status back to live — the cron
+  // skips them.
+  const teardownAt = business.scheduledTeardownAt ?? teardownDateFromNow();
+
   await db
     .update(businesses)
     .set({
       stripeSubscriptionStatus: "canceled",
+      status: "paused",
+      scheduledTeardownAt: teardownAt,
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
@@ -210,7 +263,10 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
   await db.insert(events).values({
     businessId: business.id,
     type: "stripe.subscription.deleted",
-    payload: { subscriptionId: sub.id },
+    payload: {
+      subscriptionId: sub.id,
+      scheduledTeardownAt: teardownAt.toISOString(),
+    },
   });
 }
 

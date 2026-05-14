@@ -71,6 +71,13 @@
       "when": 1780051200000,
       "tag": "0009_pre_payment_number_step",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780137600000,
+      "tag": "0010_scheduled_teardown",
+      "breakpoints": true
     }
   ]
 }

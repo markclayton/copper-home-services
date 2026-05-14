@@ -10,6 +10,7 @@ import {
   respondToInboundSms,
   reviewRequestFlow,
   tenantProvisioning,
+  tenantScheduledTeardown,
 } from "@/lib/jobs/functions";
 
 export const { GET, POST, PUT } = serve({
@@ -20,6 +21,7 @@ export const { GET, POST, PUT } = serve({
     dailyDigest,
     quoteFollowupReminder,
     tenantProvisioning,
+    tenantScheduledTeardown,
     notifyOwnerAppointmentBooked,
     notifyOwnerEmergency,
     notifyOwnerCallSummary,

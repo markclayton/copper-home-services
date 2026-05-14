@@ -24,9 +24,9 @@ export type CurrentSession = {
 };
 
 /**
- * Resolves the signed-in user's tenant. Redirects to login if no session, or
- * to a "no business linked" landing page if the auth user isn't owner of any
- * business yet (white-glove onboarding hasn't completed the link).
+ * Resolves the signed-in user's tenant for the dashboard. Hard-gates on
+ * status="live" — paused tenants bounce to /account-paused, mid-onboarding
+ * tenants bounce to /onboard.
  */
 export async function requireBusiness(): Promise<CurrentSession> {
   const supabase = await createClient();
@@ -43,7 +43,34 @@ export async function requireBusiness(): Promise<CurrentSession> {
     .limit(1);
 
   if (!business) redirect("/onboard");
+  if (business.status === "paused") redirect("/account-paused");
   if (business.status !== "live") redirect("/onboard");
+
+  return { userId, email, business };
+}
+
+/**
+ * Looser version of requireBusiness for pages paused tenants need to reach
+ * (the /account-paused page itself, reactivation actions). Returns live
+ * AND paused tenants; only mid-onboarding tenants get bounced to /onboard.
+ * Callers must handle status differences themselves.
+ */
+export async function requireLiveOrPausedBusiness(): Promise<CurrentSession> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data?.claims) redirect("/auth/login");
+
+  const userId = data.claims.sub as string;
+  const email = (data.claims.email as string | undefined) ?? null;
+
+  const [business] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.ownerUserId, userId))
+    .limit(1);
+
+  if (!business) redirect("/onboard");
+  if (business.status === "pending") redirect("/onboard");
 
   return { userId, email, business };
 }

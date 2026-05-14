@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NonRetriableError } from "inngest";
-import { and, asc, count, eq, gte, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   appointments,
@@ -29,6 +29,9 @@ import {
   type TenantProvisionNeededData,
 } from "./client";
 import { provisionTenant } from "@/lib/provisioning";
+import { deprovisionTenant } from "@/lib/provisioning/deprovision";
+import { getStripe } from "@/lib/billing/stripe";
+import { ACTIVE_STRIPE_STATUSES } from "@/lib/billing/lifecycle";
 import { notifyOwner } from "@/lib/notifications/owner";
 import {
   renderAppointment,
@@ -792,5 +795,99 @@ export const respondToInboundSms = inngest.createFunction(
     }
 
     return { ok: true, replied: true, flagged: reply.flagForOwner };
+  },
+);
+
+/**
+ * Daily cron that runs deprovisionTenant on businesses whose grace period
+ * has elapsed. A paused business stays alive (number reserved, data intact,
+ * dashboard locked) until scheduled_teardown_at passes — at which point we
+ * release the Twilio number, delete the Vapi assistant, revoke calendar
+ * access, and drop the row.
+ *
+ * Idempotency: before tearing down, re-check Stripe for the latest sub
+ * status. If the customer reactivated since the webhook fired (rare race),
+ * skip the teardown and let handleSubscriptionUpdated's reactivation path
+ * clear scheduledTeardownAt on its next event.
+ */
+export const tenantScheduledTeardown = inngest.createFunction(
+  {
+    id: "tenant-scheduled-teardown",
+    triggers: [{ cron: "0 7 * * *" }], // 07:00 UTC daily
+  },
+  async ({ step }) => {
+    const now = new Date();
+
+    const due = await step.run("load-due", () =>
+      db
+        .select()
+        .from(businesses)
+        .where(
+          and(
+            eq(businesses.status, "paused"),
+            isNotNull(businesses.scheduledTeardownAt),
+            lte(businesses.scheduledTeardownAt, now),
+          ),
+        ),
+    );
+
+    if (due.length === 0) return { tornDown: 0 };
+
+    let tornDown = 0;
+    let reactivatedSkipped = 0;
+
+    for (const business of due) {
+      await step.run(`teardown-${business.id}`, async () => {
+        // Double-check Stripe before destroying anything. The webhook for
+        // reactivation might have been delayed; we'd rather skip and revisit
+        // tomorrow than wipe a paying customer.
+        if (business.stripeSubscriptionId) {
+          try {
+            const sub = await getStripe().subscriptions.retrieve(
+              business.stripeSubscriptionId,
+            );
+            if (ACTIVE_STRIPE_STATUSES.has(sub.status)) {
+              // Sub is active again — let the next sub.updated webhook
+              // restore status=live. Just clear the teardown timer here so
+              // we don't keep re-checking every day.
+              await db
+                .update(businesses)
+                .set({
+                  scheduledTeardownAt: null,
+                  status: "live",
+                  updatedAt: new Date(),
+                })
+                .where(eq(businesses.id, business.id));
+              await db.insert(events).values({
+                businessId: business.id,
+                type: "tenant.teardown_skipped_reactivated",
+                payload: { subscriptionStatus: sub.status },
+              });
+              reactivatedSkipped += 1;
+              return;
+            }
+          } catch (err) {
+            // If Stripe lookup fails we still proceed with teardown — the
+            // teardown date was set when sub.deleted fired, and 14 days
+            // since then is plenty of room for the customer to reactivate.
+            await db.insert(events).values({
+              businessId: business.id,
+              type: "tenant.teardown_stripe_check_failed",
+              payload: { message: err instanceof Error ? err.message : String(err) },
+            });
+          }
+        }
+
+        const result = await deprovisionTenant(business.id);
+        await db.insert(events).values({
+          businessId: business.id,
+          type: result.ok ? "tenant.teardown_completed" : "tenant.teardown_failed",
+          payload: { steps: result.steps },
+        });
+        if (result.ok) tornDown += 1;
+      });
+    }
+
+    return { tornDown, reactivatedSkipped, considered: due.length };
   },
 );

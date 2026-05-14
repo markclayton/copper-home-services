@@ -156,6 +156,10 @@ export const businesses = pgTable(
     stripeSubscriptionId: text(),
     stripeSubscriptionStatus: text(),
     setupFeePaidAt: timestamp({ withTimezone: true }),
+    /** When set, an Inngest cron will deprovision this tenant on this date.
+     *  Populated when Stripe subscription is canceled (sub.deleted); cleared
+     *  if the tenant reactivates inside the grace window. */
+    scheduledTeardownAt: timestamp({ withTimezone: true }),
     status: businessStatus().notNull().default("pending"),
     onboardingStep: onboardingStep().notNull().default("business"),
     planTier: planTier().notNull().default("default"),
