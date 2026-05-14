@@ -40,6 +40,12 @@ const settingsSchema = z.object({
   timezone: z.string().min(1),
   serviceAreaZips: z.string().optional(), // comma-separated
   googleReviewUrl: z.string().url().optional().or(z.literal("")),
+  // Checkboxes are absent from FormData when unchecked, so coerce: any
+  // truthy string means "on", missing means "off".
+  reviewRequestsEnabled: z
+    .string()
+    .optional()
+    .transform((v) => v === "on" || v === "true"),
   hours: z.string(), // JSON-encoded
 
   // knowledge base
@@ -132,6 +138,7 @@ export async function saveSettings(
     timezone: v.timezone,
     serviceAreaZips: zips,
     googleReviewUrl: v.googleReviewUrl || null,
+    reviewRequestsEnabled: v.reviewRequestsEnabled,
     voiceId: v.voiceId ?? DEFAULT_VOICE_ID,
     notifyChannels,
     hours: hours as Record<string, unknown>,

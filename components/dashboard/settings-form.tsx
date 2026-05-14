@@ -147,12 +147,9 @@ export function SettingsForm({
             placeholder="94102, 94103, 94110"
           />
           <div className="md:col-span-2">
-            <FormField
-              label="Google review URL"
-              name="googleReviewUrl"
-              type="url"
-              defaultValue={business.googleReviewUrl ?? ""}
-              placeholder="https://g.page/r/..."
+            <GoogleReviewsField
+              initialEnabled={business.reviewRequestsEnabled}
+              initialUrl={business.googleReviewUrl ?? ""}
             />
           </div>
         </CardContent>
@@ -419,6 +416,96 @@ function TextareaField({
         placeholder={placeholder}
         className="rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
+    </div>
+  );
+}
+
+/**
+ * Google reviews block: toggle + URL field + collapsible help. When the
+ * toggle is off the URL field still shows (so they can prep it ahead of
+ * flipping back on) but the help copy makes clear it's idle.
+ */
+function GoogleReviewsField({
+  initialEnabled,
+  initialUrl,
+}: {
+  initialEnabled: boolean;
+  initialUrl: string;
+}) {
+  const [enabled, setEnabled] = useState(initialEnabled);
+  return (
+    <div className="rounded-md border p-4 flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Label
+            htmlFor="reviewRequestsEnabled"
+            className="text-sm font-medium"
+          >
+            Send Google review requests
+          </Label>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            Two hours after each completed appointment, the AI texts your
+            customer a friendly review link. When off, they get a thank-you
+            text instead — no link, no follow-up.
+          </p>
+        </div>
+        <label className="inline-flex items-center gap-2 shrink-0">
+          <input
+            type="checkbox"
+            id="reviewRequestsEnabled"
+            name="reviewRequestsEnabled"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <span className="text-sm">{enabled ? "On" : "Off"}</span>
+        </label>
+      </div>
+
+      <FormField
+        label="Google review URL"
+        name="googleReviewUrl"
+        type="url"
+        defaultValue={initialUrl}
+        placeholder="https://g.page/r/..."
+      />
+
+      <details className="text-xs text-muted-foreground group">
+        <summary className="cursor-pointer list-none flex items-center gap-1.5 hover:text-foreground">
+          <span className="group-open:rotate-90 transition-transform inline-block">
+            ›
+          </span>
+          How to find your Google review URL
+        </summary>
+        <div className="mt-2 pl-4 space-y-2 leading-relaxed">
+          <p>
+            <span className="font-medium text-foreground">Option A (easiest)</span> —
+            sign in at <a
+              href="https://business.google.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2"
+            >
+              business.google.com
+            </a>, pick your business → <em>Get more reviews</em> →{" "}
+            <em>Share review form</em>. Copy the{" "}
+            <span className="font-mono">g.page/r/...</span> link.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Option B</span> — find
+            yourself on Google Maps, tap <em>Reviews</em> →{" "}
+            <em>Write a review</em>, then copy the URL the dialog opens at.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Option C</span> — if you
+            only have a place ID, build it manually as{" "}
+            <span className="font-mono break-all">
+              https://search.google.com/local/writereview?placeid=YOUR_PLACE_ID
+            </span>
+            .
+          </p>
+        </div>
+      </details>
     </div>
   );
 }

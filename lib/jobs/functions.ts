@@ -166,11 +166,44 @@ export const reviewRequestFlow = inngest.createFunction(
           .limit(1);
         phone = c?.phone ?? null;
       }
-      return { businessName: biz?.name, phone };
+      return {
+        businessName: biz?.name,
+        phone,
+        reviewsEnabled: biz?.reviewRequestsEnabled ?? true,
+        googleReviewUrl: biz?.googleReviewUrl ?? null,
+      };
     });
 
     if (!ctx.phone || !ctx.businessName) {
       return { skipped: "no phone or business" };
+    }
+
+    // Two branches: full review request (link + 48h nudge) vs plain
+    // thank-you. We send a thank-you when reviews are disabled OR when
+    // they're enabled but no review URL is set (so we don't text the
+    // customer a broken /r/* link).
+    const sendReviewRequest = ctx.reviewsEnabled && !!ctx.googleReviewUrl;
+
+    if (!sendReviewRequest) {
+      await step.run("send-thanks-sms", async () => {
+        await sendSms({
+          businessId,
+          contactId,
+          to: ctx.phone!,
+          body: `Thanks for choosing ${ctx.businessName}! It was a pleasure serving you today.`,
+        });
+        await db.insert(events).values({
+          businessId,
+          type: "review.thanks_sent",
+          payload: {
+            appointmentId,
+            reason: ctx.reviewsEnabled
+              ? "no_google_review_url"
+              : "reviews_disabled",
+          },
+        });
+      });
+      return { sentThanks: true };
     }
 
     const token = randomUUID().replace(/-/g, "");

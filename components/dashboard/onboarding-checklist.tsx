@@ -29,7 +29,11 @@ export async function OnboardingChecklist({
     .limit(1);
 
   const [biz] = await db
-    .select({ calendarProvider: businesses.calendarProvider })
+    .select({
+      calendarProvider: businesses.calendarProvider,
+      googleReviewUrl: businesses.googleReviewUrl,
+      reviewRequestsEnabled: businesses.reviewRequestsEnabled,
+    })
     .from(businesses)
     .where(eq(businesses.id, businessId))
     .limit(1);
@@ -40,8 +44,12 @@ export async function OnboardingChecklist({
   const hasServices = services.length > 0;
   const hasFaqs = faqs.length > 0;
   const hasCalendar = !!biz?.calendarProvider;
+  // Reviews task is "done" when either the URL is set OR the owner has
+  // explicitly opted out — both are valid finished states.
+  const hasReviewSetup =
+    !!biz?.googleReviewUrl || biz?.reviewRequestsEnabled === false;
 
-  if (hasServices && hasFaqs && hasCalendar) return null;
+  if (hasServices && hasFaqs && hasCalendar && hasReviewSetup) return null;
 
   return (
     <Card className="border-primary/30 bg-primary/5">
@@ -69,6 +77,11 @@ export async function OnboardingChecklist({
             done={hasCalendar}
             label="Connect your calendar"
             hint="Without this the AI can't see your schedule or book appointments."
+          />
+          <ChecklistItem
+            done={hasReviewSetup}
+            label="Set up Google reviews"
+            hint="Paste your Google review link so the AI can auto-ask customers — or turn the feature off in Settings."
           />
         </ul>
         <div>

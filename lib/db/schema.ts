@@ -146,6 +146,10 @@ export const businesses = pgTable(
     twilioNumber: text(),
     vapiPhoneNumberId: text(),
     googleReviewUrl: text(),
+    /** When false, post-appointment review requests are suppressed — the
+     *  AI still texts the customer a thank-you 2h after the job but with
+     *  no Google review link. Defaults true so the feature is opt-out. */
+    reviewRequestsEnabled: boolean().notNull().default(true),
     voiceId: text().notNull().default("Elliot"),
     notifyChannels: jsonb().$type<NotifyChannels>().notNull().default({
       appointment: { sms: true, email: true },

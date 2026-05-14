@@ -40,11 +40,17 @@ export default async function ReviewsPage() {
       {rows.length === 0 ? (
         <EmptyState
           icon={Star}
-          title="No review requests yet"
+          title={
+            business.reviewRequestsEnabled
+              ? "No review requests yet"
+              : "Review requests are turned off"
+          }
           description={
-            business.googleReviewUrl
-              ? "After each completed appointment, we'll text the customer a review link. You'll see the status here."
-              : "Add your Google review URL in Settings to start sending review requests automatically after each appointment."
+            !business.reviewRequestsEnabled
+              ? "Customers get a plain thank-you text after each appointment — no review link. Turn this back on in Settings if you want to ask for Google reviews."
+              : business.googleReviewUrl
+                ? "After each completed appointment, we'll text the customer a review link. You'll see the status here."
+                : "Add your Google review URL in Settings to start sending review requests automatically after each appointment."
           }
         />
       ) : (
