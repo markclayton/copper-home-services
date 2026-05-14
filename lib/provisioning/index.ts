@@ -89,15 +89,15 @@ export async function provisionTenant(
       detail: `demo: ${twilioNumber}`,
     });
   } else {
-    // Default to the owner's area code so the new Twilio number reads as
-    // local to their customers. Falls back to any-US-local if either the
-    // owner phone isn't parseable or Twilio has no inventory in that area
-    // code right now (the latter handled inside buyLocalNumber).
+    // Prefer the specific number the owner picked in the wizard's "number"
+    // step. If it's been claimed between pick and provisioning, fall back
+    // to area code (theirs or owner-phone-derived), then to any US local.
     const preferredAreaCode =
       opts.areaCode ?? extractUsAreaCode(businessRow.ownerPhone) ?? undefined;
     try {
       const bought = await buyLocalNumber({
         businessId,
+        desiredNumber: businessRow.desiredPhoneNumber ?? undefined,
         areaCode: preferredAreaCode,
       });
       twilioNumber = bought.phoneNumber;
@@ -110,11 +110,15 @@ export async function provisionTenant(
           updatedAt: new Date(),
         })
         .where(eq(businesses.id, businessId));
-      const detail = bought.fellBack
-        ? `${bought.phoneNumber} (no inventory in area code ${bought.requestedAreaCode}, fell back to any US local)`
-        : bought.requestedAreaCode
-          ? `${bought.phoneNumber} (area code ${bought.requestedAreaCode})`
-          : bought.phoneNumber;
+      const detail = bought.desiredNumberUnavailable
+        ? `${bought.phoneNumber} (chosen number ${businessRow.desiredPhoneNumber} was already taken, picked next available in area code)`
+        : bought.fellBack
+          ? `${bought.phoneNumber} (no inventory in area code ${bought.requestedAreaCode}, fell back to any US local)`
+          : businessRow.desiredPhoneNumber
+            ? `${bought.phoneNumber} (chosen by owner)`
+            : bought.requestedAreaCode
+              ? `${bought.phoneNumber} (area code ${bought.requestedAreaCode})`
+              : bought.phoneNumber;
       steps.push({
         name: "twilio-number",
         status: "ok",

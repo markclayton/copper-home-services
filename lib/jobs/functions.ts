@@ -349,8 +349,12 @@ export const dailyDigest = inngest.createFunction(
 
 /**
  * Self-serve tenant activation: runs after Stripe checkout completes for a
- * new tenant. Calls provisionTenant (idempotent), then flips status to live.
- * The setup wait page polls business.status and redirects when it changes.
+ * new tenant. Calls provisionTenant (idempotent) to buy the Twilio number,
+ * register with Vapi, deploy the assistant. When all of that succeeds we
+ * flip status=live + onboardingStep=complete so the dashboard gate opens.
+ *
+ * The setup wait page polls business.status and redirects to /dashboard
+ * when it sees "live".
  */
 export const tenantProvisioning = inngest.createFunction(
   {
@@ -381,15 +385,23 @@ export const tenantProvisioning = inngest.createFunction(
       );
     }
 
-    // Provisioning succeeded — but the tenant only goes "live" after payment.
-    // The Stripe checkout.session.completed webhook is what flips status.
-    // This function just makes sure the technical infrastructure is wired up
-    // so the plan-step UI can display the reserved phone number.
-    await step.run("log-provisioned", async () => {
+    // Provisioning succeeded — flip status to live + onboardingStep to
+    // complete so the dashboard gate opens. The setup poller picks this up
+    // on its next tick and redirects the user to /dashboard.
+    await step.run("activate-tenant", async () => {
+      await db
+        .update(businesses)
+        .set({
+          status: "live",
+          onboardingStep: "complete",
+          updatedAt: new Date(),
+        })
+        .where(eq(businesses.id, businessId));
+
       await db.insert(events).values({
         businessId,
-        type: "tenant.provisioned",
-        payload: { steps: result.steps },
+        type: "tenant.live",
+        payload: { steps: result.steps, trigger: "provisioning.succeeded" },
       });
     });
 

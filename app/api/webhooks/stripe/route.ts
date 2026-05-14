@@ -135,13 +135,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
 /**
  * New-tenant payment success. The auth user already exists (signed up before
- * starting the wizard) and provisioning ran in the background after step 4.
- * This handler just flips the business to live + complete so the dashboard
- * gate opens.
+ * starting the wizard). This handler moves the wizard into the
+ * "provisioning" step and fires the Inngest job that actually buys the
+ * Twilio number, deploys the Vapi assistant, etc. The job is what flips
+ * status to "live" + onboardingStep to "complete" when everything succeeds
+ * (see tenantProvisioning in lib/jobs/functions.ts).
  *
- * If provisioning failed earlier or the user paid before it finished, we
- * re-fire the Inngest event — provisionTenant is idempotent so it'll either
- * pick up the failed step or skip everything cleanly.
+ * Why not flip status to live here? Because provisioning hasn't happened
+ * yet — the dashboard requires a working Twilio number + Vapi assistant.
+ * Flipping status early would let the user reach a half-set-up dashboard.
  */
 async function activateNewTenant(businessId: string) {
   const [business] = await db
@@ -154,25 +156,21 @@ async function activateNewTenant(businessId: string) {
   await db
     .update(businesses)
     .set({
-      status: "live",
-      onboardingStep: "complete",
+      onboardingStep: "provisioning",
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, businessId));
 
   await db.insert(events).values({
     businessId,
-    type: "tenant.live",
+    type: "tenant.payment_received",
     payload: { trigger: "stripe.checkout.completed" },
   });
 
-  // Safety net: re-fire provisioning if anything's missing. Idempotent.
-  if (!business.twilioNumber || !business.vapiAssistantId) {
-    await inngest.send({
-      name: "tenant/provision-needed",
-      data: { businessId },
-    });
-  }
+  await inngest.send({
+    name: "tenant/provision-needed",
+    data: { businessId },
+  });
 }
 
 async function handleSubscriptionUpdated(sub: Stripe.Subscription) {

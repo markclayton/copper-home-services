@@ -151,6 +151,7 @@ const STEP_ORDER: Business["onboardingStep"][] = [
   "hours",
   "voice",
   "calendar",
+  "number",
   "plan",
 ];
 
