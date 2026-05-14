@@ -3,15 +3,40 @@ import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 
-const defaultUrl = process.env.VERCEL_URL
-  ? `https://${process.env.VERCEL_URL}`
-  : "http://localhost:3000";
+// metadataBase is the absolute origin OG/Twitter image URLs resolve against.
+// Prefer the canonical apex domain in production so previews always point at
+// joincopper.io rather than the volatile vercel.app subdomain that VERCEL_URL
+// would otherwise inject (which Slack/iMessage cache aggressively).
+const defaultUrl = process.env.NEXT_PUBLIC_APP_URL
+  ? process.env.NEXT_PUBLIC_APP_URL
+  : process.env.VERCEL_ENV === "production"
+    ? "https://joincopper.io"
+    : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000";
+
+const title = "Copper · AI receptionist for home services";
+const description =
+  "Copper picks up every call, books the job, and texts the customer back — so owner-operators can stay on the truck. Built for HVAC, plumbing, and electrical.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "Copper · AI receptionist for home services",
-  description:
-    "Copper picks up every call, books the job, and texts the customer back — so owner-operators can stay on the truck. Built for HVAC, plumbing, and electrical.",
+  title,
+  description,
+  openGraph: {
+    title,
+    description,
+    url: defaultUrl,
+    siteName: "Copper",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+    creator: "@joincopper",
+  },
 };
 
 const fraunces = Fraunces({
