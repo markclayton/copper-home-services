@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { businesses } from "@/lib/db/schema";
-import { loadDraftSession } from "@/lib/onboarding/draft-business";
+import {
+  advanceStepIfAt,
+  loadDraftSession,
+  pathAfterSavingStep,
+} from "@/lib/onboarding/draft-business";
 
 const hoursDay = z.object({
   open: z.string(),
@@ -61,15 +65,17 @@ export async function saveHoursStep(
         .filter(Boolean)
     : [];
 
+  const redirectPath = pathAfterSavingStep(business, "hours");
+
   await db
     .update(businesses)
     .set({
       hours: hours as Record<string, unknown>,
       serviceAreaZips: zips.length > 0 ? zips : null,
-      onboardingStep: "voice",
+      onboardingStep: advanceStepIfAt(business.onboardingStep, "hours"),
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
 
-  redirect("/onboard/voice");
+  redirect(redirectPath);
 }

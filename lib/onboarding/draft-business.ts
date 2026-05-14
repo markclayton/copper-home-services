@@ -84,8 +84,9 @@ export async function loadDraftSession(): Promise<DraftSession> {
 }
 
 /**
- * Same as loadDraftSession but enforces a specific wizard step. If the user
- * jumps ahead, redirect them to their current step.
+ * Same as loadDraftSession but enforces a specific wizard step. Allows
+ * BACKWARD navigation (so the wizard's Back buttons actually work) but
+ * blocks jumping FORWARD past the user's highest-reached step.
  */
 export async function requireStep(
   expected: Business["onboardingStep"],
@@ -94,9 +95,54 @@ export async function requireStep(
   const current = session.business.onboardingStep;
 
   if (current === "complete") redirect("/dashboard");
-  if (current !== expected) redirect(`/onboard/${current}`);
+
+  const currentIdx = stepIndex(current);
+  const expectedIdx = stepIndex(expected);
+  // Trying to jump ahead of where they've been — bounce to their highest
+  // reached step. Going back to an earlier step (currentIdx > expectedIdx)
+  // is allowed so they can edit prior answers.
+  if (expectedIdx > currentIdx) redirect(`/onboard/${current}`);
 
   return session;
+}
+
+/**
+ * Compute where the user should land after saving a given step. If they're
+ * editing a previous step (their highest-reached step is past this one),
+ * send them back to where they were. Otherwise advance to the next step.
+ *
+ * Pair with `advanceStepIfAt` — together they preserve "highest reached"
+ * progress when users go back to edit earlier answers.
+ */
+export function pathAfterSavingStep(
+  business: Business,
+  savedStep: Business["onboardingStep"],
+): string {
+  const savedIdx = stepIndex(savedStep);
+  const currentIdx = stepIndex(business.onboardingStep);
+  if (currentIdx > savedIdx) {
+    // Editing an old step — return to highest reached.
+    return nextStepPath(business);
+  }
+  // Forward progress — go to the next step in the wizard.
+  const nextSlug = STEP_ORDER[savedIdx + 1];
+  return nextSlug ? `/onboard/${nextSlug}` : "/dashboard";
+}
+
+/**
+ * Returns the new `onboardingStep` value to write when saving `savedStep`.
+ * Never rolls progress backward: if the user has already advanced past
+ * `savedStep` (i.e., they came back to edit), keeps their current step.
+ */
+export function advanceStepIfAt(
+  current: Business["onboardingStep"],
+  savedStep: Business["onboardingStep"],
+): Business["onboardingStep"] {
+  const currentIdx = stepIndex(current);
+  const savedIdx = stepIndex(savedStep);
+  if (currentIdx > savedIdx) return current; // editing a past step
+  const nextSlug = STEP_ORDER[savedIdx + 1];
+  return nextSlug ?? current;
 }
 
 const STEP_ORDER: Business["onboardingStep"][] = [

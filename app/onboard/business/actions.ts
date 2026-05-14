@@ -6,7 +6,11 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { businesses } from "@/lib/db/schema";
 import { normalizeUsPhone } from "@/lib/format";
-import { loadDraftSession } from "@/lib/onboarding/draft-business";
+import {
+  advanceStepIfAt,
+  loadDraftSession,
+  pathAfterSavingStep,
+} from "@/lib/onboarding/draft-business";
 
 const schema = z.object({
   name: z.string().min(1, "Business name is required"),
@@ -49,6 +53,8 @@ export async function saveBusinessStep(
     };
   }
 
+  const redirectPath = pathAfterSavingStep(business, "business");
+
   await db
     .update(businesses)
     .set({
@@ -57,10 +63,10 @@ export async function saveBusinessStep(
       ownerEmail: email,
       ownerPhone: parsed.data.ownerPhone,
       timezone: parsed.data.timezone,
-      onboardingStep: "services",
+      onboardingStep: advanceStepIfAt(business.onboardingStep, "business"),
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
 
-  redirect("/onboard/services");
+  redirect(redirectPath);
 }

@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { businesses, knowledgeBase } from "@/lib/db/schema";
-import { loadDraftSession } from "@/lib/onboarding/draft-business";
+import {
+  advanceStepIfAt,
+  loadDraftSession,
+  pathAfterSavingStep,
+} from "@/lib/onboarding/draft-business";
 
 const saveSchema = z.object({
   services: z.string(),
@@ -52,6 +56,8 @@ export async function saveServicesStep(
     };
   }
 
+  const redirectPath = pathAfterSavingStep(business, "services");
+
   await db
     .update(knowledgeBase)
     .set({
@@ -63,10 +69,13 @@ export async function saveServicesStep(
 
   await db
     .update(businesses)
-    .set({ onboardingStep: "hours", updatedAt: new Date() })
+    .set({
+      onboardingStep: advanceStepIfAt(business.onboardingStep, "services"),
+      updatedAt: new Date(),
+    })
     .where(eq(businesses.id, business.id));
 
-  redirect("/onboard/hours");
+  redirect(redirectPath);
 }
 
 /**
@@ -77,11 +86,15 @@ export async function saveServicesStep(
  */
 export async function skipServicesStep(): Promise<void> {
   const { business } = await loadDraftSession();
+  const redirectPath = pathAfterSavingStep(business, "services");
 
   await db
     .update(businesses)
-    .set({ onboardingStep: "hours", updatedAt: new Date() })
+    .set({
+      onboardingStep: advanceStepIfAt(business.onboardingStep, "services"),
+      updatedAt: new Date(),
+    })
     .where(eq(businesses.id, business.id));
 
-  redirect("/onboard/hours");
+  redirect(redirectPath);
 }

@@ -187,7 +187,7 @@ export function PlanStepForm({
 
         <div className="flex justify-between pt-3">
           <Button asChild variant="ghost">
-            <a href="/onboard/voice">Back</a>
+            <a href="/onboard/calendar">Back</a>
           </Button>
           <Button type="submit" disabled={pending}>
             {pending

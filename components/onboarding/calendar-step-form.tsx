@@ -95,22 +95,27 @@ export function CalendarStepForm({
         </Button>
       </div>
 
-      <div className="flex justify-between pt-6">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => start(() => skipCalendarStep())}
-          disabled={pending}
-        >
-          {pending ? "…" : "Skip for now"}
+      <div className="flex items-center justify-between pt-6">
+        <Button asChild variant="ghost">
+          <a href="/onboard/voice">Back</a>
         </Button>
-        <Button
-          type="button"
-          onClick={() => start(() => advanceFromCalendar())}
-          disabled={pending || !connected}
-        >
-          {pending ? "…" : "Continue"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => start(() => skipCalendarStep())}
+            disabled={pending}
+          >
+            {pending ? "…" : "Skip for now"}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => start(() => advanceFromCalendar())}
+            disabled={pending || !connected}
+          >
+            {pending ? "…" : "Continue"}
+          </Button>
+        </div>
       </div>
     </div>
   );

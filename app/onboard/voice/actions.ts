@@ -5,7 +5,12 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { businesses, knowledgeBase } from "@/lib/db/schema";
-import { loadDraftSession } from "@/lib/onboarding/draft-business";
+import {
+  advanceStepIfAt,
+  loadDraftSession,
+  pathAfterSavingStep,
+  stepIndex,
+} from "@/lib/onboarding/draft-business";
 import { inngest } from "@/lib/jobs/client";
 import { DEFAULT_VOICE_ID, isValidVoiceId } from "@/lib/voice/voices";
 
@@ -47,25 +52,29 @@ export async function saveVoiceStep(
     })
     .where(eq(knowledgeBase.businessId, business.id));
 
-  // Advance to calendar step and kick off provisioning in the background.
-  // Connecting Google takes a redirect dance — by the time the owner gets
-  // back to the plan step, the number + assistant are usually ready.
-  // Tool handlers read fresh business state on each call, so calendar
-  // connections that complete after provisioning still work without a
-  // re-deploy.
+  const redirectPath = pathAfterSavingStep(business, "voice");
+  const isFirstTimeOnVoice = stepIndex(business.onboardingStep) <= stepIndex("voice");
+
   await db
     .update(businesses)
     .set({
       voiceId: parsed.data.voiceId ?? DEFAULT_VOICE_ID,
-      onboardingStep: "calendar",
+      onboardingStep: advanceStepIfAt(business.onboardingStep, "voice"),
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
 
-  await inngest.send({
-    name: "tenant/provision-needed",
-    data: { businessId: business.id },
-  });
+  // Kick off provisioning the FIRST time voice is saved (forward progress).
+  // If the user comes back to edit voice later, provisioning has already
+  // happened — re-firing isn't broken (the job is idempotent) but it
+  // wastes a deploy and confuses the events log. The settings page handles
+  // re-deploying the assistant when voice is edited post-onboarding.
+  if (isFirstTimeOnVoice) {
+    await inngest.send({
+      name: "tenant/provision-needed",
+      data: { businessId: business.id },
+    });
+  }
 
-  redirect("/onboard/calendar");
+  redirect(redirectPath);
 }
