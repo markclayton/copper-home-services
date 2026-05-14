@@ -6,6 +6,8 @@ import { businesses, events } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { getStripe } from "@/lib/billing/stripe";
 import { inngest } from "@/lib/jobs/client";
+import { recordWebhookEvent } from "@/lib/db/webhook-idempotency";
+import { reportError } from "@/lib/observability";
 
 export async function POST(req: NextRequest) {
   const secret = env.STRIPE_WEBHOOK_SECRET;
@@ -33,36 +35,53 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  switch (event.type) {
-    case "checkout.session.completed":
-      await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
-      break;
-    case "customer.subscription.created":
-    case "customer.subscription.updated":
-      await handleSubscriptionUpdated(
-        event.data.object as Stripe.Subscription,
-      );
-      break;
-    case "customer.subscription.deleted":
-      await handleSubscriptionDeleted(
-        event.data.object as Stripe.Subscription,
-      );
-      break;
-    case "invoice.payment_failed":
-      await logInvoiceEvent(
-        event.data.object as Stripe.Invoice,
-        "stripe.invoice.payment_failed",
-      );
-      break;
-    case "invoice.paid":
-      await logInvoiceEvent(
-        event.data.object as Stripe.Invoice,
-        "stripe.invoice.paid",
-      );
-      break;
-    default:
-      // ignore unhandled events
-      break;
+  // Idempotency: Stripe retries delivery aggressively. If we've seen this
+  // event id before, ack 200 without re-running side effects.
+  const isFresh = await recordWebhookEvent("stripe", event.id);
+  if (!isFresh) {
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed":
+        await handleCheckoutCompleted(
+          event.data.object as Stripe.Checkout.Session,
+        );
+        break;
+      case "customer.subscription.created":
+      case "customer.subscription.updated":
+        await handleSubscriptionUpdated(
+          event.data.object as Stripe.Subscription,
+        );
+        break;
+      case "customer.subscription.deleted":
+        await handleSubscriptionDeleted(
+          event.data.object as Stripe.Subscription,
+        );
+        break;
+      case "invoice.payment_failed":
+        await logInvoiceEvent(
+          event.data.object as Stripe.Invoice,
+          "stripe.invoice.payment_failed",
+        );
+        break;
+      case "invoice.paid":
+        await logInvoiceEvent(
+          event.data.object as Stripe.Invoice,
+          "stripe.invoice.paid",
+        );
+        break;
+      default:
+        // ignore unhandled events
+        break;
+    }
+  } catch (err) {
+    reportError(err, {
+      tags: { source: "stripe_webhook", event_type: event.type },
+      extra: { eventId: event.id },
+    });
+    throw err;
   }
 
   return NextResponse.json({ received: true });

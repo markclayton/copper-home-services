@@ -170,3 +170,15 @@ export async function updatePhoneNumber(
     body: patch,
   });
 }
+
+export async function deleteAssistant(assistantId: string) {
+  return vapiFetch<{ id: string }>(`/assistant/${assistantId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function deletePhoneNumber(phoneNumberId: string) {
+  return vapiFetch<{ id: string }>(`/phone-number/${phoneNumberId}`, {
+    method: "DELETE",
+  });
+}

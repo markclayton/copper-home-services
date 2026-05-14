@@ -1,0 +1,1 @@
+ALTER TABLE "businesses" ADD COLUMN "notify_channels" jsonb DEFAULT '{"appointment":{"sms":true,"email":true},"emergency":{"sms":true,"email":true},"callSummary":{"sms":true,"email":false}}'::jsonb NOT NULL;

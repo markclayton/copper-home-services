@@ -9,7 +9,14 @@ let cached: Db | null = null;
 
 function getDb(): Db {
   if (cached) return cached;
-  const queryClient = postgres(env.DATABASE_URL, { prepare: false });
+  // prepare: false is required when going through Supabase's pgbouncer
+  // transaction pooler — prepared statements aren't shared across pooled
+  // connections. max: 5 keeps each Next.js module copy from hoarding
+  // connections during dev hot-reload.
+  const queryClient = postgres(env.DATABASE_URL, {
+    prepare: false,
+    max: 5,
+  });
   cached = drizzle(queryClient, { schema, casing: "snake_case" });
   return cached;
 }

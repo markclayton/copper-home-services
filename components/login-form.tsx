@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { GoogleAuthButton } from "@/components/google-auth-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
@@ -56,7 +57,15 @@ export function LoginForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin}>
+          <div className="flex flex-col gap-4">
+            <GoogleAuthButton label="Sign in with Google" />
+            <div className="relative text-center text-xs uppercase tracking-wider text-muted-foreground">
+              <span className="absolute inset-y-1/2 left-0 h-px w-[40%] bg-border" />
+              <span className="bg-card px-2">or</span>
+              <span className="absolute inset-y-1/2 right-0 h-px w-[40%] bg-border" />
+            </div>
+          </div>
+          <form onSubmit={handleLogin} className="mt-4">
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
@@ -95,7 +104,7 @@ export function LoginForm({
             <div className="mt-4 text-center text-sm">
               Don&apos;t have an account?{" "}
               <Link
-                href="/onboard"
+                href="/auth/sign-up"
                 className="underline underline-offset-4"
               >
                 Get started

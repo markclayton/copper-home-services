@@ -9,6 +9,7 @@ const STEPS = [
   { slug: "services", label: "Services" },
   { slug: "hours", label: "Hours" },
   { slug: "voice", label: "Voice" },
+  { slug: "calendar", label: "Calendar" },
   { slug: "plan", label: "Plan" },
 ];
 

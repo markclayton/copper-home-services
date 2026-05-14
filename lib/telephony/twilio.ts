@@ -1,6 +1,7 @@
 import twilio, { type Twilio } from "twilio";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { messages } from "@/lib/db/schema";
+import { events, messages } from "@/lib/db/schema";
 import { env, requireEnv } from "@/lib/env";
 
 let cached: Twilio | null = null;
@@ -14,13 +15,62 @@ export function getTwilioClient(): Twilio {
   return cached;
 }
 
+/**
+ * Platform-wide ceiling: a single business won't get more than this many
+ * outbound SMS in a rolling 30-day window. Tunable via env when we have a
+ * customer pushing past it. The point isn't to police usage — it's to stop
+ * a runaway loop from draining a thousand dollars in carrier fees before
+ * anyone notices.
+ */
+const SMS_MONTHLY_CAP_DEFAULT = 1000;
+
+export class SmsQuotaExceededError extends Error {
+  constructor(
+    public businessId: string,
+    public count: number,
+    public cap: number,
+  ) {
+    super(
+      `SMS monthly quota exceeded for business ${businessId}: ${count}/${cap}`,
+    );
+    this.name = "SmsQuotaExceededError";
+  }
+}
+
 type SendSmsArgs = {
   businessId: string;
   contactId?: string | null;
   to: string;
   body: string;
   from?: string;
+  /** Who sent this message — defaults to "ai" since most outbound is automated.
+   * Set to "owner" for manual replies typed in the dashboard. */
+  sender?: "ai" | "owner";
+  /** Bypass the monthly quota guard. Reserved for owner-targeted alerts where
+   * skipping is worse than overspending. Use sparingly. */
+  bypassQuota?: boolean;
 };
+
+async function withinMonthlyQuota(businessId: string): Promise<{
+  ok: boolean;
+  count: number;
+  cap: number;
+}> {
+  const cap = Number(env.SMS_MONTHLY_CAP_PER_BUSINESS ?? SMS_MONTHLY_CAP_DEFAULT);
+  const thirtyDaysAgo = sql`now() - interval '30 days'`;
+  const [row] = await db
+    .select({ total: count() })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.businessId, businessId),
+        eq(messages.direction, "outbound"),
+        gte(messages.createdAt, thirtyDaysAgo),
+      ),
+    );
+  const sent = Number(row?.total ?? 0);
+  return { ok: sent < cap, count: sent, cap };
+}
 
 export async function sendSms({
   businessId,
@@ -28,7 +78,21 @@ export async function sendSms({
   to,
   body,
   from,
+  sender = "ai",
+  bypassQuota,
 }: SendSmsArgs) {
+  if (!bypassQuota) {
+    const quota = await withinMonthlyQuota(businessId);
+    if (!quota.ok) {
+      await db.insert(events).values({
+        businessId,
+        type: "sms.quota_exceeded",
+        payload: { to, count: quota.count, cap: quota.cap },
+      });
+      throw new SmsQuotaExceededError(businessId, quota.count, quota.cap);
+    }
+  }
+
   const client = getTwilioClient();
   const fromNumber = from ?? env.TWILIO_DEFAULT_FROM_NUMBER;
   if (!fromNumber) {
@@ -47,6 +111,7 @@ export async function sendSms({
       businessId,
       contactId: contactId ?? null,
       direction: "outbound",
+      sender,
       body,
       twilioSid: sent.sid,
       status: mapTwilioStatus(sent.status),

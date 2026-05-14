@@ -21,10 +21,11 @@ Built against [`flagship-v1-prd.md`](./flagship-v1-prd.md). V1 success criteria:
 | DB | Supabase Postgres + RLS |
 | ORM / migrations | Drizzle |
 | Frontend | Next.js + Tailwind + shadcn/ui |
-| Booking | Cal.com (managed, v2 API) |
+| Booking | Google Calendar (OAuth per-tenant; Microsoft Outlook planned) |
 | Background jobs | Inngest |
 | LLM (summaries) | OpenRouter via OpenAI SDK (default: `anthropic/claude-sonnet-4.5`); Vapi handles in-call model separately |
 | Payments | Stripe (Checkout + customer portal) |
+| Owner email | Resend (optional — owner notifications no-op if unconfigured) |
 | Hosting | Vercel + Supabase + Inngest Cloud |
 | Errors | Sentry (planned, not yet wired) |
 | Logs | Vercel runtime logs + in-app `events` table |
@@ -48,7 +49,7 @@ Customer phone ─► Twilio number ─► Vapi assistant
                        │                ▼
                        │     OpenRouter summarize → calls row
                        ▼
-              book_appointment ─► Cal.com booking ─► customer SMS + owner SMS
+              book_appointment ─► tenant's Google Calendar ─► customer SMS + owner SMS
                                                           │
                                                           ▼
                                               Inngest "appointment/booked"
@@ -60,7 +61,7 @@ Customer phone ─► Twilio number ─► Vapi assistant
 Other entry points:
 
 - `/api/webhooks/lead/{business_id}` — web form lead → fires Inngest `lead/web-form-submitted` → outbound Vapi call
-- `/api/webhooks/twilio/sms/{business_id}` — inbound SMS persisted (signature-verified)
+- `/api/webhooks/twilio/sms/{business_id}` — inbound SMS persisted (signature-verified) → fires Inngest `sms/inbound-received` → AI reply via Twilio
 - `/api/webhooks/stripe` — subscription lifecycle → DB
 - `/api/inngest` — Inngest function registry (cron + event handlers)
 - `/r/{token}` — tracked review redirect → marks clicked → Google review URL
@@ -93,7 +94,8 @@ lib/
   db/{index.ts,schema.ts,queries.ts,migrations/}   # Drizzle
   voice/{types.ts,prompt-template.ts,tools.ts,tool-handlers.ts,vapi.ts,deploy.ts}
   telephony/twilio.ts                              # SMS send + client
-  booking/cal.ts                                   # Cal.com v2 client
+  booking/google.ts                                # Google Calendar (freeBusy + events.insert)
+  crypto/tokens.ts                                 # AES-GCM for OAuth tokens at rest
   ai/llm.ts                                        # call summarization (OpenRouter)
   jobs/{client.ts,functions.ts}                    # Inngest
   billing/stripe.ts                                # Stripe client
@@ -119,7 +121,7 @@ scripts/
 
 - [Bun](https://bun.com) 1.3+
 - Supabase project (free tier works)
-- Optional but needed for full E2E: Vapi, Twilio, OpenRouter, Cal.com, Stripe, Inngest accounts
+- Optional but needed for full E2E: Vapi, Twilio, OpenRouter, Google Cloud (Calendar OAuth), Stripe, Inngest accounts
 
 ### 1. Install + env
 
@@ -128,7 +130,11 @@ bun install
 cp .env.example .env.local
 ```
 
-Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `DATABASE_URL` (Supabase → Project Settings → Database → "Direct connection" string). Everything else is optional and can be filled in as you wire each integration.
+Fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and the two database URLs from Supabase → Project Settings → Database:
+- `DATABASE_URL` → **Transaction pooler** string (port 6543, with `?pgbouncer=true` appended). The app's runtime queries go through this.
+- `DIRECT_URL` → **Direct connection** or **Session pooler** string (port 5432). Used only by drizzle-kit for migrations. If you omit it, drizzle-kit falls back to `DATABASE_URL` and migrations will fail with a prepared-statement error.
+
+Everything else is optional and can be filled in as you wire each integration.
 
 ### 2. Migrate the database
 
@@ -200,8 +206,15 @@ You can then sign in at `/auth/login` and land in `/dashboard`.
 
 Things that bit me during the first end-to-end run. Read before debugging.
 
-### Supabase direct connection is IPv6-only on the free tier
-The "Direct connection" string at `db.<ref>.supabase.co:5432` won't connect from most home networks. Use the **Session pooler** string instead (looks like `postgres://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres`). Username is `postgres.<project_ref>`, not bare `postgres`. Works for both migrations and runtime; switch to the transaction pooler later only if you need it.
+### Two database URLs: transaction pooler for runtime, direct/session for migrations
+You need both `DATABASE_URL` and `DIRECT_URL` configured. They serve different roles:
+- `DATABASE_URL` → **Transaction pooler** (port 6543, append `?pgbouncer=true`). The app uses this for every query at runtime. Connection pooling is per-transaction so hundreds of concurrent requests share a small physical pool. Required for serverless / Next.js — without it you'll hit `EMAXCONNSESSION` ("max clients reached in session mode") as soon as parallel queries on the dashboard pile up.
+- `DIRECT_URL` → **Direct connection** (port 5432 at `db.<ref>.supabase.co`) or **Session pooler** (port 5432 on the pooler host). `drizzle-kit` (migrations / generate / studio) needs prepared statements, which the transaction pooler strips. If `DIRECT_URL` is unset, `drizzle.config.ts` falls back to `DATABASE_URL` and migrations break.
+
+The direct connection at `db.<ref>.supabase.co:5432` is IPv6-only on the Supabase free tier and won't reach from most home networks — in that case use the **Session pooler** string (`postgres://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres`) for `DIRECT_URL`. Username is `postgres.<project_ref>`, not bare `postgres`.
+
+### `EMAXCONNSESSION` / "max clients reached in session mode"
+Symptom: queries on `/dashboard` start failing with `(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15`. Cause: `DATABASE_URL` points at the session pooler (port 5432) instead of the transaction pooler (port 6543). Session mode binds one connection per client for the whole session, capped at 15. Fix: swap to the transaction pooler string per the entry above, restart `bun dev` so the cached postgres client picks it up.
 
 ### `NEXT_PUBLIC_*` env vars are baked into client JS at dev-server start
 If you change `.env.local` (Supabase URL, key, etc.) while `bun dev` is running, the browser still has the old (or undefined) values. Symptom: `supabase.auth.signUp()` does nothing, no network request, console silent. Fix: Ctrl-C `bun dev`, restart, hard-refresh browser.
@@ -223,8 +236,8 @@ To avoid the dance entirely, claim a static domain in the ngrok dashboard (free 
 The signup form's `emailRedirectTo` must be in Supabase's allowlist. Set both **Site URL** and **Redirect URLs** in Supabase → Authentication → URL Configuration to your ngrok URL (`https://<tunnel>.ngrok-free.app` and `https://<tunnel>.ngrok-free.app/**`). Update each time the ngrok URL changes (or use a static domain).
 
 ### Vapi voices and model IDs change
-Vapi rotates their voice catalog and uses dated model IDs. If `bun provision` fails with `voice not supported` or `model.model must be one of...`, look at `lib/voice/deploy.ts` and swap to a current value:
-- Voices that work today: `Elliot`, `Kylie`, `Rohan`, `Hana`, `Lily`. Authoritative list: <https://docs.vapi.ai/providers/voice/vapi-voices>
+Vapi rotates their voice catalog and uses dated model IDs. If `bun provision` or a settings save fails with `voice is part of a legacy voice set` or `model.model must be one of...`, look at `lib/voice/voices.ts` (for the owner-facing picker) and `lib/voice/deploy.ts` (for the model id) and swap to a current value:
+- Voices currently offered in the picker: `Elliot`, `Kai`, `Nico`, `Clara`, `Emma`, `Savannah`. The previous set (Spencer, Neha, Harry, Cole, Paige, Hana, Lily, Kylie) was retired on March 1, 2026. Authoritative list: <https://docs.vapi.ai/providers/voice/vapi-voices>
 - Models need the full dated form: `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, etc. The error message lists every accepted value if you get it wrong.
 
 ### Twilio area codes can be out of stock
@@ -232,6 +245,14 @@ Vapi rotates their voice catalog and uses dated model IDs. If `bun provision` fa
 
 ### Empty values in `.env.local` are not the same as unset
 `VAPI_API_KEY=` (empty string) is parsed as `""`, not `undefined`. The env loader at `lib/env.ts` cleans empty strings to `undefined` before validating so optional integration keys aren't rejected — keep this in mind if you add new env vars.
+
+### Production env guards refuse to boot on misconfiguration
+When `NODE_ENV=production`, `lib/env.ts` runs cross-field validation that throws on:
+- `DEMO_TWILIO_NUMBER` or `DEMO_VAPI_PHONE_NUMBER_ID` being set (would route every customer to a shared demo number)
+- `VAPI_WEBHOOK_SECRET` unset (allows webhook spoofing)
+- `INTERNAL_WEBHOOK_SECRET` unset (leaves lead webhook unauthenticated)
+
+Symptom: Vercel build succeeds but runtime returns 500 with `Invalid production environment: ...` in the logs. Fix the env vars in Vercel and redeploy. This is intentional — it's the cheapest mistake to make and the most expensive to ship past.
 
 ### Provisioning script holds the DB open
 The `postgres` driver keeps its pool alive after the script completes, so scripts need explicit `process.exit(0)` on success. Both `seed-test-tenant.ts` and `provision-tenant.ts` do this. Any new long-running script should too, or it'll appear to hang.
@@ -256,7 +277,6 @@ When both are set, `provisionTenant`:
 - **Uses the demo number** for steps `twilio-number` and `vapi-phone-number` instead of buying / registering new
 - **Skips `a2p-attach`** (the demo number is already attached, or doesn't need it for testing)
 - **Still creates a unique Vapi assistant** per tenant — brand voice, prompt, and KB are real
-- **Still creates a unique Cal.com event type** per tenant
 - **Re-links the demo number to the latest signup's assistant** in `link-phone-to-assistant` (last-write-wins on the inbound voice route)
 
 **Trade-off:** only one tenant at a time can have their AI answer the shared number. If two friends sign up back-to-back, the second signup overwrites the first's voice routing. Their dashboards still work independently; just calling in resolves to whoever signed up most recently.
@@ -266,6 +286,86 @@ When both are set, `provisionTenant`:
 ---
 
 ## Production deployment
+
+### Pre-flight checklist
+
+Run through this before flipping DNS at a new domain. Order matters — the env guards refuse to boot the server if any of the first three are missing or wrong.
+
+**Boot-blocking env (required for prod, app refuses to start otherwise):**
+- [ ] `VAPI_WEBHOOK_SECRET` set, and the same value pasted into the Vapi assistant's webhook config
+- [ ] `INTERNAL_WEBHOOK_SECRET` set (32+ random chars)
+- [ ] `DEMO_TWILIO_NUMBER` and `DEMO_VAPI_PHONE_NUMBER_ID` **unset** in the Production scope
+
+**Standard env:**
+- [ ] `APP_URL` set to the prod origin (no trailing slash)
+- [ ] All Supabase + Stripe + Twilio + Vapi + OpenRouter + Google Calendar + Inngest keys set
+- [ ] `RESEND_API_KEY` + `NOTIFICATIONS_EMAIL_FROM` (or leave unset — email cleanly no-ops)
+- [ ] `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (build-time only)
+- [ ] `TWILIO_MESSAGING_SERVICE_SID` once A2P 10DLC is approved
+- [ ] `SIGNUP_ALLOWLIST` set to your tester roster while in private beta — see [Private-beta signup gate](#private-beta-signup-gate) below. Clear the var to open public signups.
+
+**Database:**
+- [ ] `bun db:migrate` against the prod DB — applies every migration including 0006 (`webhook_events` table for webhook idempotency) and 0007 (`messages.sender` enum + `contacts.ai_paused` boolean for owner replies and pause-AI)
+
+**Provider URLs (re-point from ngrok / staging):**
+- [ ] Stripe webhook endpoint → `https://<prod-domain>/api/webhooks/stripe`
+- [ ] Supabase Auth → Site URL + Redirect URLs allowlist updated to prod domain
+- [ ] Inngest Cloud → serve URL `https://<prod-domain>/api/inngest`, then click Sync
+- [ ] For any tenant whose Vapi assistant was provisioned against an ngrok URL: re-run `bun provision <id>` to redeploy with prod URLs
+
+**Google OAuth verification (BLOCKER before public launch):**
+- [ ] Production redirect URI `https://<prod-domain>/api/integrations/google-calendar/callback` added to the calendar OAuth client (separate client from Supabase auth — see [Google Calendar setup](#google-calendar-per-tenant-oauth))
+- [ ] OAuth consent screen submitted for verification — calendar scopes (`calendar.events`, `calendar.freebusy`) are **sensitive** and require Google review. Takes 2–6 weeks. While in "Testing" mode you're capped at 100 test users and refresh tokens expire after 7 days, which is fine for private beta but **will break customer onboarding the moment you go public**.
+- [ ] Demo video recorded + linked in the verification request (Google asks for one ~80% of the time — preempt the round trip). 1–3 min unlisted YouTube showing: consent flow, in-app booking creating a calendar event, disconnect flow revoking access.
+- [ ] App **published** (consent screen → "Publish App") once verification clears. Until then the yellow unverified-app warning shows on every consent screen.
+
+**Smoke test after deploy:**
+- [ ] `/` loads with the new landing page; favicon shows the copper "C"
+- [ ] Sign up flow end-to-end in incognito with Stripe test card `4242 4242 4242 4242`
+- [ ] Place a real call → AI answers → book an appointment → confirm owner SMS + email arrive
+- [ ] Throw a deliberate error (or hit a 404) → confirm Sentry receives it
+- [ ] POST 13 leads in one hour to `/api/webhooks/lead/<business_id>` → the 13th returns `429` with `Retry-After: 600`
+- [ ] Replay any Stripe event twice from the dashboard → second response includes `{duplicate: true}` and doesn't mutate state again
+
+### Production environment guards
+
+The env loader at `lib/env.ts` runs cross-field validation when `NODE_ENV=production`. The server will throw at startup and refuse to serve requests if any of the following are missed — by design, not by accident:
+
+- `DEMO_TWILIO_NUMBER` or `DEMO_VAPI_PHONE_NUMBER_ID` set → would route every new customer to a shared demo number. Treated as fatal.
+- `VAPI_WEBHOOK_SECRET` unset → any caller could POST fake end-of-call reports for any tenant.
+- `INTERNAL_WEBHOOK_SECRET` unset → the lead webhook would be unauthenticated.
+
+Boot failures show up in Vercel build / runtime logs as `Invalid production environment: ...`. Fix the env in Vercel and redeploy.
+
+### Private-beta signup gate
+
+While A2P 10DLC is still pending or while you're closed-beta testing with a small roster, the codebase has a built-in allowlist gate. The marketing site, legal pages, and login flow stay public — only **new account creation** is restricted.
+
+**Configure**: set `SIGNUP_ALLOWLIST` in Vercel to a comma-separated list of beta-tester emails:
+
+```
+SIGNUP_ALLOWLIST=mark.clayton93@gmail.com,tester1@example.com,tester2@example.com
+```
+
+Leave the var unset (or empty) and the gate is OFF — anyone can sign up. That's the local-dev default.
+
+**Behavior when the gate is active:**
+
+| Path | What happens |
+|---|---|
+| `/` and other marketing pages | Public, unchanged. |
+| `/privacy`, `/terms`, `/contact` | Public — A2P reviewers can read them. |
+| `/auth/login` | Anyone can attempt sign-in. Existing users sign in normally. |
+| `/auth/sign-up` (email/password) | Server action checks `SIGNUP_ALLOWLIST` before calling Supabase signUp. Blocked emails redirect to `/auth/waitlist`. |
+| `/auth/callback` (Google OAuth) | After OAuth round-trip: if the email isn't on the allowlist AND the user has no existing business in our DB, we sign them out, delete the freshly-created Supabase auth row, and redirect to `/auth/waitlist`. |
+| `/onboard/*` | Defense-in-depth: `loadDraftSession` re-checks the allowlist before creating a draft business. Blocked → `/auth/waitlist`. |
+| `/dashboard/*` | No gate. Once a user is past onboarding (has a business in our DB), they keep working even if you remove them from the allowlist later. |
+
+**Adding / removing testers**: change the `SIGNUP_ALLOWLIST` env in Vercel and redeploy (or use Vercel's "Update Environment Variables" → "Save and redeploy" flow). Existing tenants are not affected by allowlist changes — to fully revoke access from someone who's already onboarded, delete their auth user from Supabase and their business row from the DB.
+
+**Lifting the gate**: when A2P is approved and you're ready for open signups, clear the `SIGNUP_ALLOWLIST` env var (or remove the var entirely). No code change needed.
+
+The implementation lives in `lib/auth/allowlist.ts`. Three enforcement points: `components/sign-up-form.tsx` (email/password), `app/auth/callback/route.ts` (OAuth), `lib/onboarding/draft-business.ts` (onboarding defense-in-depth).
 
 ### Supabase
 
@@ -284,14 +384,14 @@ When both are set, `provisionTenant`:
 
 - Create app, link to GitHub repo or use the deploy URL.
 - Set the serve URL to `https://<your-domain>/api/inngest`.
-- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`.
+- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`, `tenantProvisioning`, `notifyOwnerAppointmentBooked`, `notifyOwnerEmergency`, `notifyOwnerCallSummary`, `respondToInboundSms`.
 - Add `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` to Vercel env.
 
 ### Vapi
 
 - Create account, copy API key into `VAPI_API_KEY`.
-- Optionally set a webhook secret (`VAPI_WEBHOOK_SECRET`) — when set, the webhook handler enforces `x-vapi-secret`.
-- Assistants are created automatically by `provisionTenant`. No manual config required.
+- **Required in production:** `VAPI_WEBHOOK_SECRET` (any 32+ char random string). Paste the same value into the assistant's webhook config under Vapi → Assistants → Server URL → Headers (`x-vapi-secret`). Without it the env guard refuses to boot the server.
+- Assistants are created automatically by `provisionTenant`. No manual config required per tenant.
 
 ### Twilio
 
@@ -299,6 +399,7 @@ When both are set, `provisionTenant`:
 - Set `TWILIO_DEFAULT_FROM_NUMBER` to the Twilio number you want SMS sent *from*. For Tenant Zero, that's the number `provisionTenant` bought. Once you have multiple tenants, you'd switch to per-tenant from-numbers in code (currently a global default).
 - Set `TWILIO_MESSAGING_SERVICE_SID` once your A2P 10DLC Brand + Campaign are approved. `provisionTenant` will auto-attach every newly-bought number to this service so SMS clears carrier filtering. Find it at Twilio Console → Messaging → Services → your service → Service SID (`MGxxxx`).
 - `provisionTenant` buys numbers and configures their SMS webhook automatically. Vapi configures the voice webhook when the number is registered.
+- **SMS cost ceiling**: every outbound `sendSms` checks a rolling 30-day count of outbound messages per business. Default cap is 1000 messages / 30 days; override with `SMS_MONTHLY_CAP_PER_BUSINESS`. Hitting the cap throws `SmsQuotaExceededError` and logs an `sms.quota_exceeded` event — protects you from runaway loops draining Twilio credit. Customer-facing booking SMS catches failures so a quota hit never fails a live call.
 
 #### A2P 10DLC registration (required for US SMS delivery)
 
@@ -328,14 +429,46 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 
 **Cost**: ~$2/mo per campaign + per-message carrier fees (fractions of a cent). Total carrier deposits vary.
 
-**While you wait**: voice flows, tool invocations, Cal.com bookings, dashboard updates — all work fine. Only actual SMS delivery is blocked. Use the `events` table to verify the system *would have* sent SMS if approval were complete.
+**While you wait**: voice flows, tool invocations, calendar bookings, dashboard updates — all work fine. Only actual SMS delivery is blocked. Use the `events` table to verify the system *would have* sent SMS if approval were complete.
 
 **Throughput**: a single Campaign covers all your customer numbers. Per-second message limits scale with Brand vetting tier (Sole Prop < Standard < Verified), not with number count. If you outgrow throughput, register a higher tier — not more campaigns.
 
-### Cal.com
+### Google Calendar (per-tenant OAuth)
 
-- Create account or use a self-hosted instance. Note the API key.
-- Each tenant needs an event type ID stored in `businesses.cal_com_event_type_id`. The provisioning script does not auto-create event types yet — set this manually until that flow is built.
+Each tenant connects their own Google Calendar via OAuth. The AI reads their availability and creates events on their calendar — no shared platform account, no per-tenant API keys to manage by hand. Microsoft Outlook is planned.
+
+**One-time setup** (platform-wide):
+
+1. **Create a dedicated OAuth client** at <https://console.cloud.google.com/apis/credentials> — **separate from your Supabase auth client**. Reusing the auth client would pull the login flow into verification with sensitive calendar scopes attached, breaking unverified sign-ins. Same GCP project is fine; just create a second client of type **Web application**.
+   - Authorized redirect URI: `${APP_URL}/api/integrations/google-calendar/callback` (add both your local + production URLs)
+2. **Enable the Google Calendar API** for the project.
+3. **Configure OAuth consent screen**:
+   - User type: **External**
+   - Scopes: `calendar.events`, `calendar.freebusy`, `userinfo.email`
+   - Add test users while the app is in "Testing" mode; submit for verification before going to "Production" (Google verification takes 2-6 weeks for sensitive scopes).
+4. **Set env vars**:
+   - `GOOGLE_CALENDAR_CLIENT_ID` — from the OAuth client
+   - `GOOGLE_CALENDAR_CLIENT_SECRET` — from the OAuth client
+   - `CALENDAR_TOKEN_KEY` — generate with `openssl rand -hex 32`. This AES-GCM key encrypts refresh tokens at rest. **Do not rotate in production without re-connecting all tenants** — existing tokens become unreadable.
+
+**Verification path before public launch:**
+
+Calendar scopes are **sensitive** (not restricted — those need a full third-party security audit). Sensitive verification is much lighter weight but still needed.
+
+- **In "Testing" mode** (default): only listed test users can connect. Refresh tokens expire after 7 days. Yellow "unverified app" banner shown on every consent screen. Fine for private beta.
+- **Submit for verification** when you're ready to scale past 100 test users:
+  1. Have a privacy policy + terms URL live (we have `/privacy` + `/terms`).
+  2. Verify your app domain at <https://search.google.com/search-console> (DNS or HTML file method).
+  3. On the OAuth consent screen, click **Submit for verification**. Google's form asks for a written justification per sensitive scope and almost always asks for a 1–3 minute unlisted YouTube demo. Preempt the demo by attaching one upfront — it cuts the typical timeline from 4-6 weeks to 2-3.
+  4. Google may follow up with clarifying questions. Reply within 5 business days or they close the request.
+- **Once approved**: click **Publish App**. The unverified banner disappears, the 100-user cap lifts, refresh tokens become durable.
+
+**Per-tenant**: the owner clicks "Connect" in the onboarding wizard (skippable) or in `/dashboard/settings → Integrations`. Refresh + access tokens land encrypted on `businesses.calendar_refresh_token_enc` / `calendar_access_token_enc`. The voice agent reads them via `lib/booking/google.ts`, which auto-refreshes the access token when it expires.
+
+**Booking layer** (`lib/booking/google.ts`):
+- `getFreeSlots(business, { startDate, endDate })` — calls `freeBusy.query`, overlays business hours from `businesses.hours`, returns aligned slots
+- `createBooking(business, args)` — `events.insert` on the tenant's primary calendar
+- `revokeRefreshToken(token)` — used at account delete to sever access immediately
 
 ### Stripe
 
@@ -345,10 +478,34 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - Add a webhook endpoint pointing at `https://<your-domain>/api/webhooks/stripe`. Subscribe to: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
 - Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
 
+### Resend (owner email notifications)
+
+Optional. Email notifications use Resend; if unconfigured the email channel cleanly skips and SMS still fires.
+
+- Create an account at <https://resend.com> and add your sending domain (we use `notifications.joincopper.io`). Verify the DNS records.
+- API key into `RESEND_API_KEY`.
+- Set `NOTIFICATIONS_EMAIL_FROM` to a verified sender with a display name, e.g. `Copper <noreply@notifications.joincopper.io>`. The local-part doesn't need to exist as a real mailbox.
+- Templates live in `lib/notifications/templates.ts`; the dispatcher in `lib/notifications/owner.ts` respects the per-tenant `notify_channels` JSON column on `businesses`.
+
 ### OpenRouter
 
 - API key into `OPENROUTER_API_KEY`. Used only for offline call summarization via the OpenAI-compatible endpoint. Vapi runs the in-call model itself with credentials configured directly in the Vapi dashboard.
 - Default model is `anthropic/claude-sonnet-4.5`. Override by editing `SUMMARY_MODEL` in `lib/ai/llm.ts` — any OpenRouter model id works (e.g. `openai/gpt-4o-mini`, `anthropic/claude-haiku-4.5`).
+
+### Sentry (error tracking)
+
+Optional but strongly recommended for production. When unconfigured, all Sentry calls no-op gracefully.
+
+- Create a Next.js project at <https://sentry.io>. Note the DSN under Project Settings → Client Keys.
+- **Runtime env (Vercel Production scope):**
+  - `SENTRY_DSN` — server-side capture
+  - `NEXT_PUBLIC_SENTRY_DSN` — browser capture (usually the same DSN)
+- **Build-time env (Vercel Production scope, only used during `next build`):**
+  - `SENTRY_ORG` — org slug
+  - `SENTRY_PROJECT` — project slug (e.g. `copper`)
+  - `SENTRY_AUTH_TOKEN` — create at sentry.io/settings/account/api/auth-tokens with scopes `project:read`, `project:releases`, `org:read`. Used to upload source maps so stack traces are readable.
+- The instrumentation lives in `instrumentation.ts` (server + edge) and `instrumentation-client.ts` (browser). Each release is tagged with `VERCEL_GIT_COMMIT_SHA` so issues map to a commit.
+- Use `reportError(err, { businessId, tags, extra })` from `lib/observability.ts` when you want to add context to a captured exception. Unhandled errors are captured automatically by the Next.js integration.
 
 ---
 
@@ -369,10 +526,10 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - [x] Missed-call text-back fired on `status-update: in-progress` (idempotent per Vapi call ID)
 
 ### AI tools (called mid-call)
-- [x] `get_available_slots` → Cal.com slot lookup
-- [x] `book_appointment` → real Cal.com booking + appointment row + customer SMS + owner SMS, fires `appointment/booked` Inngest event
+- [x] `get_available_slots` → Google Calendar freeBusy + business-hours slot computation
+- [x] `book_appointment` → tenant's Google Calendar (`events.insert`) + appointment row + customer SMS (sync); owner notification fans out async via Inngest `appointment/booked`. Falls back to "owner will call you back" when calendar isn't connected.
 - [x] `lookup_existing_customer` → contacts table query
-- [x] `send_emergency_alert` → owner SMS
+- [x] `send_emergency_alert` → fires `emergency/detected` Inngest event for async owner notification (no longer blocks the AI mid-call)
 - [x] `send_quote_followup` → fires `tool/quote-followup` Inngest event
 
 ### Outbound voice (Flow 2 — speed-to-lead)
@@ -384,6 +541,14 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - [x] Outbound SMS via Twilio with DB persistence in `messages`
 - [x] Inbound SMS webhook with HMAC-SHA1 signature verification
 - [x] Idempotent on `MessageSid`
+- [x] **AI-powered SMS replies** — customers can text the AI number in addition to calling. Inbound SMS fires `sms/inbound-received`; `respondToInboundSms` Inngest function loads the KB + last 40 messages of conversation history, asks the LLM (claude-haiku-4.5) for a short reply via a tool call, and sends it back through Twilio.
+- [x] Carrier keywords (STOP/HELP/START/etc.) detected and skipped — Twilio's auto-replies handle these at the carrier level.
+- [x] LLM-driven owner escalation: when the AI flags a thread (emergency, callback request, cancellation, unanswerable question), an `sms.flagged_for_owner` event is logged and a best-effort owner SMS fires with a snippet of the customer message and the flag reason.
+- [x] Per-business Inngest concurrency limit of 5 so a single tenant's text burst doesn't starve others.
+- [x] Idempotency on `twilioSid` via `webhook_events` — Inngest retries and Twilio resends can't double-reply.
+- [x] **Owner reply from dashboard** — chat-style composer on every conversation page sends SMS as the owner (sender=`owner`), not the AI. Quota-checked like any other SMS.
+- [x] **Pause AI per contact** — toggle on the conversation page flips `contacts.ai_paused`. While paused, the AI handler logs `sms.ai_paused_skipped` and returns without generating a reply. Inbound messages still persist; the owner can reply manually.
+- [x] **AI vs owner distinction in transcripts** — outbound bubbles render copper for AI replies, dark for owner replies, with a small "AI" / "You" label underneath. Conversation list shows the latest sender too.
 
 ### Reviews (Flow 3)
 - [x] Inngest `reviewRequestFlow` triggered by `appointment/booked`
@@ -392,18 +557,23 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - [x] Tracked redirect at `/r/{token}` increments `clicked` and 302s to `business.googleReviewUrl`
 
 ### Owner notifications
-- [x] Per-call summary SMS at end-of-call
-- [x] Daily digest SMS at 6 PM local time per tenant (timezone-aware via Postgres `AT TIME ZONE`)
-- [x] Emergency alert SMS
+- [x] **Real-time multi-channel alerts** — SMS + HTML email fired from Inngest on `appointment/booked`, `emergency/detected`, and `call/summary-ready`. Non-blocking so they never slow down the AI mid-call.
+- [x] **Rich content** — each SMS includes a dashboard deep-link; each email is a styled HTML template with caller info, summary, intent/outcome badges, and a CTA button. Emergency emails have a red banner and a tap-to-dial "Call back now" button.
+- [x] **Email via Resend** — optional integration; if `RESEND_API_KEY` is unset, email cleanly skips and SMS still fires.
+- [x] **Per-event channel toggles** — owners can independently enable/disable SMS and email for booking, emergency, and call-summary events from `/dashboard/settings`. Default: SMS+email for bookings and emergencies, SMS-only for call summaries.
+- [x] Daily digest SMS at 6 PM local time per tenant (timezone-aware via Postgres `AT TIME ZONE`).
 
 ### Dashboard
-- [x] Auth-gated layout with sidebar nav
-- [x] Today page (calls / booked / conversion / emergencies / reviews requested)
-- [x] Calls list + detail (transcript, recording playback, summary, linked appointment)
+- [x] Auth-gated layout with sidebar nav; **mobile-responsive** — sidebar collapses to a hamburger drawer below `md`; help link `mailto:info@joincopper.io` in header.
+- [x] **Today page** — metric cards (calls / booked / conversion / emergencies / reviews) with deltas vs the same window yesterday (↑green / ↓red, inverted for emergencies); **three-column section** with **Upcoming** (next 5 appointments with Today/Tomorrow labels), **Today's calls** (recent calls with summary, intent/outcome badges, click-through to transcript), and **Today's texts** (active SMS conversations with flag indicators and click-through to the conversation); click-to-copy AI receptionist number with "Copied" feedback; friendly empty state with tap-to-call link.
+- [x] Calls list + detail (transcript, recording playback, summary, linked appointment, **"AI got this wrong"** flag button that records `call.flagged_by_owner` events).
+- [x] **Messages — threaded by contact**: list groups all messages by conversation with last-message preview, count, "Needs you" flag badge when AI escalated, and "AI paused" badge when the owner has taken over. Drill-down at `/dashboard/messages/[contactId]` shows the full thread as chat bubbles distinguishing customer (muted left), AI replies (copper right), and owner replies (deep-ink right with a "You" label). Includes a flag-reason callout when the AI flagged the thread.
+- [x] **Owner reply composer + Pause AI toggle** on every conversation page. Composer uses `Cmd+Enter` to send and persists outbound rows with `sender="owner"` via a server action. Pause toggle flips `contacts.ai_paused`; while paused, inbound messages still land in the dashboard but the AI handler logs `sms.ai_paused_skipped` and stays quiet.
 - [x] Bookings list (upcoming appointments)
 - [x] Reviews list (pending / sent / clicked / completed)
-- [x] Settings page: business info, hours grid editor, KB JSON sections, voice config; save redeploys Vapi assistant
+- [x] **Settings page** — business info, hours grid editor, services/FAQs editors, **voice picker** (curated set of Vapi voices), brand voice notes, emergency criteria, voicemail script, after-hours policy, **per-event notification channel toggles** (SMS/email per booking/emergency/call-summary); save redeploys Vapi assistant
 - [x] Billing page: subscription status, Stripe checkout, Stripe customer portal
+- [x] Polished empty states across Calls, Bookings, Reviews, Messages with contextual copy + icons.
 
 ### Onboarding (self-serve)
 - [x] Public form at `/onboard` capturing all PRD §7 fields
@@ -415,7 +585,7 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 
 ### Provisioning
 - [x] `provisionTenant(businessId)` orchestrator — idempotent, safe to re-run
-- [x] 7 steps, each env-gated and soft-failing: `twilio-number` → `a2p-attach` → `vapi-phone-number` → `cal-event-type` → `vapi-assistant` → `stripe-customer` → `link-phone-to-assistant`
+- [x] 6 steps, each env-gated and soft-failing: `twilio-number` → `a2p-attach` → `vapi-phone-number` → `vapi-assistant` → `stripe-customer` → `link-phone-to-assistant` (calendar is connected by the owner via OAuth post-provisioning)
 - [x] CLI: `bun provision <business_id> [--area-code 415]` (still useful for re-deploying after `APP_URL` changes or manual repair)
 - [x] Inngest function `tenantProvisioning` runs the orchestrator on payment success and flips `status` to `live`
 
@@ -425,10 +595,24 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
 - [x] Customer portal for self-service card / invoice management
 - [x] Webhook handles checkout completion, subscription lifecycle, invoice events
 
+### Production hardening
+- [x] **Webhook idempotency** — `webhook_events` table with unique `(provider, event_id)`. Stripe webhook dedupes by event id; all three owner-notification Inngest functions dedupe by appointment/call/vapiCallId so Vapi resends and Inngest retries can't double-fire.
+- [x] **Lead webhook signature + rate limit** — `INTERNAL_WEBHOOK_SECRET` required in prod; per-business cap of 12 leads/hour returns `429` with `Retry-After`.
+- [x] **Production env guards** — server refuses to start if `DEMO_*` routing vars are set, if `VAPI_WEBHOOK_SECRET` is missing, or if `INTERNAL_WEBHOOK_SECRET` is missing.
+- [x] **SMS cost ceiling** — `sendSms` enforces a per-business rolling 30-day cap (default 1000, env-tunable); throws `SmsQuotaExceededError` and logs `sms.quota_exceeded` event.
+- [x] **Sentry** — server + client + edge runtimes wired via `instrumentation.ts` + `instrumentation-client.ts`. Tags every event with deploy SHA. No-op without `SENTRY_DSN`. `reportError()` helper in `lib/observability.ts` for tagged manual capture.
+- [x] **Onboarding error recovery** — `/onboard/setup/[id]` poller times out at 4 minutes with a "this is taking longer than usual" support fallback instead of spinning forever.
+- [x] **Owner feedback loop** — "AI got this wrong" button on every call detail page records `call.flagged_by_owner` events with the owner's note.
+
 ### Schema migrations
 - [x] `0000_init.sql` — initial 8 tables + RLS
 - [x] `0001_add_vapi_phone_and_google_review.sql`
 - [x] `0002_add_stripe_fields.sql`
+- [x] `0003_add_onboarding_step.sql`
+- [x] `0004_add_voice_id.sql` — picker-selected Vapi voice per tenant
+- [x] `0005_add_notify_channels.sql` — per-event SMS/email toggles
+- [x] `0006_add_webhook_events.sql` — idempotency log for inbound webhooks (Stripe dedupe + notification fan-out dedupe)
+- [x] `0007_add_message_sender_and_pause.sql` — `messages.sender` enum (`customer` / `ai` / `owner`) and `contacts.ai_paused` boolean
 
 ---
 
@@ -454,11 +638,11 @@ The first section is the **self-serve smoke test** — the primary flow new cust
 This validates that an unauthenticated visitor can go from `/onboard` to a working AI receptionist without any human intervention.
 
 **Prerequisites:**
-- All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Cal.com + Stripe + OpenRouter + Inngest.
+- All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Google Calendar + Stripe + OpenRouter + Inngest.
 - `STRIPE_PRICE_MRR` set to a recurring price ($500/mo). `STRIPE_PRICE_SETUP` left empty (self-serve has no setup fee).
 - `TWILIO_MESSAGING_SERVICE_SID` set so new numbers auto-attach to your A2P 10DLC Campaign. (Skip if you're using demo mode below.)
 - Stripe webhook endpoint configured to point at `https://<your-tunnel>/api/webhooks/stripe`.
-- Cal.com account is connected to a Google Calendar so booking has real availability.
+- A test tenant has connected their Google Calendar via `/dashboard/settings → Integrations` so booking has real availability.
 - Three terminals running: `bun dev`, `bun tunnel`, `bunx inngest-cli@latest dev`.
 
 **For repeated testing, enable demo mode** so each signup reuses Tenant Zero's number instead of buying a fresh one:
@@ -481,7 +665,7 @@ See **Dev gotchas → Demo provisioning mode** for the trade-offs.
 9. Check the email inbox you used. Supabase sent an invitation email with a magic link.
 10. Click the magic link → land in `/dashboard` for the new tenant. The Today page should show zeros + the new business name in the header.
 11. **Verify the system is wired** by calling the new Twilio number you can find via `select twilio_number from businesses order by created_at desc limit 1`. The AI should pick up with the brand voice you set.
-12. Have a brief conversation, request to book an appointment. Cal.com booking should succeed (auto-created event type) and SMS should deliver (A2P-attached number).
+12. Have a brief conversation, request to book an appointment. The booking should land on the connected Google Calendar and the confirmation SMS should deliver (A2P-attached number).
 
 **Diagnostic helpers if anything breaks:**
 
@@ -501,8 +685,10 @@ If any step fails, the rest of the testing checklist below tests individual feat
 - [ ] Sidebar shows all 7 sections; business name appears in header
 
 ### 2. Empty-state dashboard
-- [ ] **Today** page: shows zeros and "Quiet day so far" card
-- [ ] **Calls / Bookings / Reviews**: show empty-state messages, no errors
+- [ ] **Today** page: AI receptionist number card shown with a working **Copy** button (text flips to "Copied" for 1.5s); 4 metric cards show zeros; three-column panel below (Upcoming / Today's calls / Today's texts) each shows a contextual empty state with a tap-to-call link to the AI number
+- [ ] After the first call: metric deltas appear vs yesterday (↑+1 in green for Calls); the call shows up in "Today's calls" with intent/outcome badges; new bookings show up under "Upcoming"
+- [ ] After the first inbound text: the conversation shows up under "Today's texts" with the latest message preview; the AI's reply appears as the next bubble in the conversation drill-down
+- [ ] **Calls / Bookings / Reviews / Messages**: show contextual empty states with helpful copy (e.g., Messages prompts "Customers who text your AI number show up here"); no errors
 
 ### 3. Inbound voice
 - [ ] Call your tenant's Twilio number from a different phone
@@ -515,19 +701,27 @@ If any step fails, the rest of the testing checklist below tests individual feat
 
 ### 4. Booking flow (mid-call tool use)
 - [ ] Make a second call. Tell the AI: "I need an AC repair, can you check tomorrow morning?"
-- [ ] AI calls `get_available_slots` → reads back real slots from Cal.com
+- [ ] AI calls `get_available_slots` → reads back real slots from the tenant's Google Calendar
 - [ ] Pick one, confirm name + phone + address. AI calls `book_appointment`
 - [ ] AI confirms verbally; calling phone gets confirmation SMS
 - [ ] Owner phone gets booking alert SMS
-- [ ] Cal.com dashboard shows the new booking
+- [ ] The new event appears on the tenant's Google Calendar
 - [ ] **Bookings** page shows the upcoming appointment
 - [ ] Call detail page shows the linked appointment card
 
 ### 5. Emergency
 - [ ] Make a call describing a "gas smell" or "no heat in winter"
-- [ ] AI calls `send_emergency_alert`; owner phone gets EMERGENCY SMS
+- [ ] AI calls `send_emergency_alert`; owner phone gets EMERGENCY SMS (with caller phone + address)
+- [ ] If `RESEND_API_KEY` is set, owner email also arrives — red banner, "Call back now" tap-to-dial button
 - [ ] Call detail in dashboard shows red `emergency` badge
 - [ ] `summary` text reflects the emergency
+
+### 5b. Owner notification fan-out (SMS + email)
+- [ ] After any test call: owner SMS arrives within a few seconds with a dashboard deep-link
+- [ ] If a booking happened: a second SMS + email lands with caller name, service, when, and a "View call" CTA
+- [ ] Visit `/dashboard/settings` → **Notifications** card; toggle off email for "Call summary"; save
+- [ ] Place another call → only SMS arrives for the call summary; booking/emergency channels respected independently
+- [ ] Inngest dev UI shows runs of `notify-owner-appointment-booked`, `notify-owner-emergency`, `notify-owner-call-summary` with per-channel `sent` / `skipped` / `failed` results
 
 ### 6. Web form lead → outbound speed-to-lead
 - [ ] Submit a JSON POST to `/api/webhooks/lead/{business_id}` with `{ phone, name, service }` (and the HMAC signature header if `INTERNAL_WEBHOOK_SECRET` is set)
@@ -562,10 +756,25 @@ If any step fails, the rest of the testing checklist below tests individual feat
 - [ ] Refresh — subscription status shows `active`
 - [ ] Click **Manage billing** → Stripe customer portal opens
 
-### 11. Inbound SMS
-- [ ] Reply to the missed-call text-back SMS from the calling phone
-- [ ] `messages` table gets a new `direction: inbound` row
-- [ ] (No automated reply yet — verifying persistence only)
+### 11. Inbound SMS (AI replies)
+- [ ] Text the AI number something simple like "Do you guys do water heater installs?" from a different phone
+- [ ] `messages` table gets a `direction: inbound, sender: customer` row, then an AI-generated `direction: outbound, sender: ai` row within a few seconds
+- [ ] Reply lands on the sending phone — short, on-brand, uses the business's KB
+- [ ] Text "my basement is flooding" → AI acknowledges urgency in its reply; an `sms.flagged_for_owner` event lands in the events table; owner phone receives a flag SMS with the customer's message + flag reason
+- [ ] Text "STOP" → carrier-level opt-out, no AI reply on top
+- [ ] Inngest dev UI shows `respond-to-inbound-sms` run with steps `claim-reply-lock`, `load-context`, `generate-reply`, `send-reply`, (optionally) `notify-owner`
+- [ ] Open `/dashboard/messages` — conversation threaded by contact; "Needs you" badge appears on the emergency thread
+- [ ] Click into the conversation: customer messages on the left, AI replies on the right in copper, with an "AI" label below each one
+- [ ] Flag-reason callout at the top lists what the AI escalated and the customer message that triggered it
+
+### 11b. Owner reply + Pause AI
+- [ ] On the conversation page, click **Pause AI** in the header — button flips to "Resume AI"; an "AI paused" badge appears under the contact name
+- [ ] Type a reply in the composer at the bottom and send (or hit `Cmd+Enter`)
+- [ ] Bubble appears on the right in deep ink with a "You" label below it; the contact's phone receives the SMS
+- [ ] `messages` table shows the new row with `sender: owner`
+- [ ] Text the AI number again from the customer phone → AI does NOT auto-reply this time; an `sms.ai_paused_skipped` event lands in the events table; inbound message still appears in the conversation
+- [ ] Click **Resume AI** → next inbound message gets an AI reply again
+- [ ] Today dashboard shows the conversation in the new "Today's texts" panel with a "you" tag on the last sent message
 
 ### 12. RLS isolation
 - [ ] Create a second auth user + second business in DB
@@ -601,7 +810,7 @@ The self-serve flow (form → Stripe → webhook → Inngest → live) should co
 
 Most-common failure modes and fixes:
 - `twilio-number` failed with "no local numbers in area code" → the customer didn't specify an area code or it's out of stock. Manually run `bun provision <id> --area-code <other>` after the customer-supplied one fails.
-- `cal-event-type` failed → Cal.com API key invalid or hit rate limit. Re-run `bun provision <id>`.
+- AI says "I can't see the schedule directly" → tenant hasn't connected their calendar yet. They can connect via `/dashboard/settings → Integrations`.
 - `a2p-attach` failed → Messaging Service SID wrong or number ineligible. Skip via Twilio Console manual attach, then re-run provision.
 - `vapi-assistant` failed → usually means a model or voice ID Vapi rotated out. Edit `lib/voice/deploy.ts` and re-run provision.
 

@@ -47,14 +47,17 @@ export async function saveVoiceStep(
     })
     .where(eq(knowledgeBase.businessId, business.id));
 
-  // Advance to plan step and kick off provisioning in the background so the
-  // tenant's number + assistant are ready by the time they finish reading
-  // the plan options.
+  // Advance to calendar step and kick off provisioning in the background.
+  // Connecting Google takes a redirect dance — by the time the owner gets
+  // back to the plan step, the number + assistant are usually ready.
+  // Tool handlers read fresh business state on each call, so calendar
+  // connections that complete after provisioning still work without a
+  // re-deploy.
   await db
     .update(businesses)
     .set({
       voiceId: parsed.data.voiceId ?? DEFAULT_VOICE_ID,
-      onboardingStep: "plan",
+      onboardingStep: "calendar",
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
@@ -64,5 +67,5 @@ export async function saveVoiceStep(
     data: { businessId: business.id },
   });
 
-  redirect("/onboard/plan");
+  redirect("/onboard/calendar");
 }

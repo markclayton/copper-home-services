@@ -11,6 +11,10 @@ import { env } from "@/lib/env";
 export type BoughtNumber = {
   phoneNumber: string;
   twilioSid: string;
+  /** The area code we requested. May be null when no preference was given. */
+  requestedAreaCode: string | null;
+  /** True when the requested area code had no inventory and we fell back. */
+  fellBack: boolean;
 };
 
 export async function buyLocalNumber(args: {
@@ -20,20 +24,35 @@ export async function buyLocalNumber(args: {
 }): Promise<BoughtNumber> {
   const client = getTwilioClient();
   const country = args.countryCode ?? "US";
+  const preferredAreaCode = args.areaCode
+    ? Number.parseInt(args.areaCode, 10)
+    : undefined;
 
-  const search = await client
-    .availablePhoneNumbers(country)
-    .local.list({
-      areaCode: args.areaCode ? Number.parseInt(args.areaCode, 10) : undefined,
+  let search = await client.availablePhoneNumbers(country).local.list({
+    areaCode: preferredAreaCode,
+    smsEnabled: true,
+    voiceEnabled: true,
+    limit: 5,
+  });
+
+  // Twilio may have no inventory in a specific area code on a given day.
+  // Falling back to "any local in the country" is better than failing the
+  // whole provisioning run — the owner can manually pick a different number
+  // later if the fallback's area code isn't acceptable.
+  let fellBack = false;
+  if (search.length === 0 && preferredAreaCode !== undefined) {
+    fellBack = true;
+    search = await client.availablePhoneNumbers(country).local.list({
       smsEnabled: true,
       voiceEnabled: true,
       limit: 5,
     });
+  }
 
   if (search.length === 0) {
     throw new Error(
       `No local numbers available in ${country}${
-        args.areaCode ? ` area code ${args.areaCode}` : ""
+        args.areaCode ? ` (tried area code ${args.areaCode} with fallback)` : ""
       }.`,
     );
   }
@@ -50,6 +69,8 @@ export async function buyLocalNumber(args: {
   return {
     phoneNumber: incoming.phoneNumber,
     twilioSid: incoming.sid,
+    requestedAreaCode: args.areaCode ?? null,
+    fellBack,
   };
 }
 

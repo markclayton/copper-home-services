@@ -6,36 +6,6 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { businesses, knowledgeBase } from "@/lib/db/schema";
 import { loadDraftSession } from "@/lib/onboarding/draft-business";
-import { draftKbFromUrl, type KbDraft } from "@/lib/onboarding/draft-kb";
-
-const urlSchema = z.string().url();
-
-export type ServicesDraftState = {
-  ok: boolean;
-  draft?: KbDraft;
-  error?: string;
-};
-
-export async function draftFromUrlAction(
-  _prev: ServicesDraftState,
-  form: FormData,
-): Promise<ServicesDraftState> {
-  await loadDraftSession(); // require auth
-  const url = String(form.get("websiteUrl") ?? "");
-  const parsed = urlSchema.safeParse(url);
-  if (!parsed.success) {
-    return { ok: false, error: "Enter a valid URL like https://example.com" };
-  }
-  try {
-    const draft = await draftKbFromUrl(parsed.data);
-    return { ok: true, draft };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
 
 const saveSchema = z.object({
   services: z.string(),
@@ -90,6 +60,23 @@ export async function saveServicesStep(
       updatedAt: new Date(),
     })
     .where(eq(knowledgeBase.businessId, business.id));
+
+  await db
+    .update(businesses)
+    .set({ onboardingStep: "hours", updatedAt: new Date() })
+    .where(eq(businesses.id, business.id));
+
+  redirect("/onboard/hours");
+}
+
+/**
+ * Skip the Services/FAQs step entirely — used by the "Skip for now" button.
+ * Doesn't touch the knowledgeBase row; just advances onboardingStep so the
+ * wizard moves on. The dashboard surfaces a checklist that nudges the user
+ * back here later.
+ */
+export async function skipServicesStep(): Promise<void> {
+  const { business } = await loadDraftSession();
 
   await db
     .update(businesses)

@@ -15,7 +15,7 @@ import {
   type Business,
 } from "@/lib/db/schema";
 import { sendSms } from "@/lib/telephony/twilio";
-import { createBooking, listAvailableSlots } from "@/lib/booking/cal";
+import { createBooking, getFreeSlots } from "@/lib/booking/google";
 import { inngest } from "@/lib/jobs/client";
 import type { VapiToolCall, VapiToolResult } from "./types";
 
@@ -118,28 +118,24 @@ function formatBookingTime(date: Date, timezone: string): string {
   }).format(date);
 }
 
-function digits(phone: string): string {
-  return phone.replace(/[^0-9]/g, "");
-}
-
 async function handleGetAvailableSlots(
   ctx: ToolCtx,
   args: ToolArgs,
 ): Promise<string> {
-  const eventTypeId = ctx.business.calComEventTypeId;
-  if (!eventTypeId) {
-    return "Booking is not yet configured for this business.";
+  if (ctx.business.calendarProvider !== "google") {
+    return "I can't see the schedule directly — let me take your info and have someone call you back to confirm a time.";
   }
 
   const startDate = String(args.start_date ?? "");
   const endDate = String(args.end_date ?? startDate);
   if (!startDate) return "I need a date to look up slots.";
 
-  const slots = await listAvailableSlots({
-    eventTypeId: Number(eventTypeId),
+  const slots = await getFreeSlots(ctx.business, {
     startDate,
     endDate,
-    timeZone: ctx.business.timezone,
+    slotDurationMin: 60,
+    slotStepMin: 30,
+    maxSlots: 6,
   });
 
   if (slots.length === 0) {
@@ -147,10 +143,9 @@ async function handleGetAvailableSlots(
   }
 
   const formatted = slots
-    .slice(0, 6)
     .map((s) => {
-      const friendly = formatBookingTime(new Date(s.time), ctx.business.timezone);
-      return `${friendly} (start_at_iso=${s.time})`;
+      const friendly = formatBookingTime(new Date(s.startISO), ctx.business.timezone);
+      return `${friendly} (start_at_iso=${s.startISO})`;
     })
     .join("; ");
 
@@ -161,8 +156,9 @@ async function handleBookAppointment(
   ctx: ToolCtx,
   args: ToolArgs,
 ): Promise<string> {
-  const eventTypeId = ctx.business.calComEventTypeId;
-  if (!eventTypeId) return "Booking is not yet configured for this business.";
+  if (ctx.business.calendarProvider !== "google") {
+    return "I can't book directly yet — let me take your info and have the owner call you back to confirm.";
+  }
 
   const startISO = String(args.start_at_iso ?? "");
   const customerPhone = String(args.customer_phone ?? "");
@@ -192,19 +188,21 @@ async function handleBookAppointment(
     return `Already booked ${serviceType} for ${friendly}. Confirmation text already sent.`;
   }
 
-  const email =
+  // Only forward real emails to Google — fake addresses get rejected when
+  // listed as attendees. The phone number lives in the description.
+  const customerEmail =
     typeof args.customer_email === "string" && args.customer_email.includes("@")
       ? args.customer_email
-      : `${digits(customerPhone) || "unknown"}@no-email.local`;
+      : undefined;
 
-  const booking = await createBooking({
-    eventTypeId: Number(eventTypeId),
+  const booking = await createBooking(ctx.business, {
     startISO,
+    summary: `${serviceType} — ${customerName}`,
+    description: notes,
+    location: address || undefined,
     attendeeName: customerName,
-    attendeeEmail: email,
+    attendeeEmail: customerEmail,
     attendeePhone: customerPhone,
-    timeZone: ctx.business.timezone,
-    notes: notes ?? `${serviceType} — ${address}`.trim(),
   });
 
   const callId = callRowId;
@@ -220,9 +218,9 @@ async function handleBookAppointment(
       businessId: ctx.business.id,
       contactId,
       callId,
-      calEventId: String(booking.id),
-      startAt: new Date(booking.start),
-      endAt: new Date(booking.end),
+      calEventId: booking.id,
+      startAt: new Date(booking.startISO),
+      endAt: new Date(booking.endISO),
       serviceType,
       notes: [address, notes].filter(Boolean).join("\n"),
       status: "scheduled",
@@ -235,28 +233,27 @@ async function handleBookAppointment(
       businessId: ctx.business.id,
       appointmentId: appt.id,
       contactId,
-      endAt: new Date(booking.end).toISOString(),
+      endAt: new Date(booking.endISO).toISOString(),
     },
   });
 
   const friendlyTime = formatBookingTime(
-    new Date(booking.start),
+    new Date(booking.startISO),
     ctx.business.timezone,
   );
 
-  await Promise.allSettled([
-    sendSms({
-      businessId: ctx.business.id,
-      contactId,
-      to: customerPhone,
-      body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply with questions.`,
-    }),
-    sendSms({
-      businessId: ctx.business.id,
-      to: ctx.business.ownerPhone,
-      body: `New booking: ${customerName} • ${serviceType} • ${friendlyTime} • ${customerPhone}`,
-    }),
-  ]);
+  // Customer confirmation stays sync — the AI promises a text on the call.
+  // Owner notification is fanned out by notifyOwnerAppointmentBooked which
+  // also listens for the appointment/booked event fired above.
+  await sendSms({
+    businessId: ctx.business.id,
+    contactId,
+    to: customerPhone,
+    body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply with questions.`,
+  }).catch(() => {
+    // Customer SMS failure shouldn't fail the booking; the Inngest owner
+    // notification will still fire so the owner sees the booking.
+  });
 
   return `Booked ${serviceType} for ${friendlyTime}. Confirmation text sent.`;
 }
@@ -295,17 +292,16 @@ async function handleEmergencyAlert(
     address,
   });
 
-  try {
-    await sendSms({
+  await inngest.send({
+    name: "emergency/detected",
+    data: {
       businessId: ctx.business.id,
-      to: ctx.business.ownerPhone,
-      body: `EMERGENCY @ ${ctx.business.name}: ${summary}. Caller ${customerPhone}. Address: ${address}.`,
-    });
-  } catch (err) {
-    await recordEvent(ctx.business.id, "tool.emergency_alert.sms_failed", {
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
+      summary,
+      customerPhone,
+      address,
+      vapiCallId: ctx.vapiCallId,
+    },
+  });
 
   return "Emergency logged. The owner has been alerted and will call back within minutes.";
 }

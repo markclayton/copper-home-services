@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { businesses, contacts, messages } from "@/lib/db/schema";
 import { env } from "@/lib/env";
+import { inngest } from "@/lib/jobs/client";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -15,6 +16,27 @@ function twimlResponse(status = 200) {
     status,
     headers: { "content-type": "text/xml" },
   });
+}
+
+// Carrier-handled keywords. Twilio auto-replies for STOP/UNSUBSCRIBE/CANCEL
+// (registering the opt-out at the carrier level) and HELP. We still
+// recognize them so the AI doesn't reply on top of the carrier message.
+const CARRIER_KEYWORDS = new Set([
+  "stop",
+  "stopall",
+  "unsubscribe",
+  "end",
+  "quit",
+  "cancel",
+  "help",
+  "info",
+  "start",
+  "yes",
+  "unstop",
+]);
+
+function isCarrierKeyword(body: string): boolean {
+  return CARRIER_KEYWORDS.has(body.trim().toLowerCase());
 }
 
 export async function POST(
@@ -73,12 +95,13 @@ export async function POST(
 
   const contactId = await upsertContact(business.id, fromNumber);
 
-  await db
+  const [inserted] = await db
     .insert(messages)
     .values({
       businessId: business.id,
       contactId,
       direction: "inbound",
+      sender: "customer",
       body,
       twilioSid: messageSid,
       status: "delivered",
@@ -86,7 +109,24 @@ export async function POST(
       toNumber: toNumber ?? null,
       sentAt: new Date(),
     })
-    .onConflictDoNothing({ target: messages.twilioSid });
+    .onConflictDoNothing({ target: messages.twilioSid })
+    .returning({ id: messages.id });
+
+  // Only fire the AI reply if this is a freshly-inserted message (not a
+  // resend) and not a carrier-handled keyword. Carrier-handled keywords get
+  // a Twilio auto-reply; layering our own would confuse the customer.
+  if (inserted && body.trim() && !isCarrierKeyword(body)) {
+    await inngest.send({
+      name: "sms/inbound-received",
+      data: {
+        businessId: business.id,
+        messageId: inserted.id,
+        twilioSid: messageSid,
+        fromNumber,
+        body,
+      },
+    });
+  }
 
   return twimlResponse(200);
 }

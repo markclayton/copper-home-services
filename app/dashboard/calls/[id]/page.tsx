@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { and, eq, sql } from "drizzle-orm";
 import {
   Card,
   CardContent,
@@ -16,6 +17,9 @@ import {
   CallStatusBadge,
   EmergencyBadge,
 } from "@/components/dashboard/badges";
+import { FlagCallButton } from "@/components/dashboard/flag-call-button";
+import { db } from "@/lib/db";
+import { events } from "@/lib/db/schema";
 import { getCall, requireBusiness } from "@/lib/db/queries";
 import {
   formatDateTime,
@@ -36,6 +40,18 @@ export default async function CallDetailPage({
 
   const transcript = (call.transcript ?? []) as VapiTranscriptMessage[];
 
+  const [flagged] = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(
+      and(
+        eq(events.businessId, business.id),
+        eq(events.type, "call.flagged_by_owner"),
+        sql`${events.payload}->>'callId' = ${id}`,
+      ),
+    )
+    .limit(1);
+
   return (
     <div className="flex flex-col gap-6 max-w-4xl">
       <div>
@@ -47,9 +63,9 @@ export default async function CallDetailPage({
         </Link>
       </div>
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold truncate">
             {call.contactName ?? "Unknown caller"}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -60,7 +76,7 @@ export default async function CallDetailPage({
             )}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1 justify-end">
+        <div className="flex flex-wrap gap-1 sm:justify-end">
           <CallStatusBadge status={call.status} />
           <EmergencyBadge isEmergency={call.isEmergency} />
           <CallIntentBadge intent={call.intent} />
@@ -127,11 +143,14 @@ export default async function CallDetailPage({
               {transcript
                 .filter((m) => m.message)
                 .map((m, idx) => (
-                  <div key={idx} className="flex gap-3">
-                    <div className="w-20 shrink-0 text-xs text-muted-foreground uppercase">
+                  <div
+                    key={idx}
+                    className="flex flex-col sm:flex-row gap-1 sm:gap-3"
+                  >
+                    <div className="sm:w-20 shrink-0 text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       {m.role}
                     </div>
-                    <div className="flex-1 whitespace-pre-wrap">
+                    <div className="flex-1 whitespace-pre-wrap leading-relaxed">
                       {m.message}
                     </div>
                   </div>
@@ -143,8 +162,11 @@ export default async function CallDetailPage({
 
       <Separator />
 
-      <div className="text-xs text-muted-foreground">
-        Call ID: {call.id}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <FlagCallButton callId={call.id} alreadyFlagged={!!flagged} />
+        <div className="text-xs text-muted-foreground font-mono">
+          {call.id}
+        </div>
       </div>
     </div>
   );

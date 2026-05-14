@@ -48,10 +48,11 @@ export function HoursStepForm({ business }: { business: Business }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <h1 className="text-2xl font-semibold">Hours and service area</h1>
+      <h1 className="text-2xl font-semibold">Hours</h1>
       <p className="text-sm text-muted-foreground mb-4">
-        When are you open, and where do you work? The AI uses this to set
-        expectations with callers.
+        When are you open? The AI uses this to set expectations with callers
+        — e.g. &ldquo;we&apos;re closed today, want to book first thing
+        tomorrow?&rdquo;
       </p>
 
       <form action={formAction} className="flex flex-col gap-5">
@@ -96,7 +97,15 @@ export function HoursStepForm({ business }: { business: Business }) {
         </div>
 
         <div className="grid gap-2">
-          <Label htmlFor="serviceAreaZips">Service area ZIPs</Label>
+          <Label
+            htmlFor="serviceAreaZips"
+            className="flex items-center gap-2"
+          >
+            Service area ZIPs
+            <span className="text-xs font-normal text-muted-foreground">
+              optional
+            </span>
+          </Label>
           <Input
             id="serviceAreaZips"
             name="serviceAreaZips"
@@ -104,8 +113,9 @@ export function HoursStepForm({ business }: { business: Business }) {
             placeholder="94102, 94103, 94110"
           />
           <p className="text-xs text-muted-foreground">
-            Comma-separated. The AI will politely decline calls outside
-            these areas.
+            Only fill this in if you want the AI to politely decline calls
+            from outside your service area. Leave blank if you take work
+            anywhere or don&apos;t want a hard boundary.
           </p>
         </div>
 

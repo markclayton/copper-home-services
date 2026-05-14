@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PhoneCall } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -13,6 +14,7 @@ import {
   CallStatusBadge,
   EmergencyBadge,
 } from "@/components/dashboard/badges";
+import { EmptyState } from "@/components/dashboard/empty-state";
 import { listCalls, requireBusiness } from "@/lib/db/queries";
 import {
   formatDuration,
@@ -34,7 +36,15 @@ export default async function CallsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No calls yet.</p>
+        <EmptyState
+          icon={PhoneCall}
+          title="No calls yet"
+          description={
+            business.twilioNumber
+              ? `Calls to ${formatPhone(business.twilioNumber)} will appear here with transcripts, summaries, and any bookings the AI made.`
+              : "Once your AI is wired to a phone number, every call shows up here in real time."
+          }
+        />
       ) : (
         <div className="rounded-md border">
           <Table>

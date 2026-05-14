@@ -8,6 +8,7 @@ import {
   pgPolicy,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 import { authUsers, authenticatedRole } from "drizzle-orm/supabase";
@@ -25,6 +26,7 @@ export const onboardingStep = pgEnum("onboarding_step", [
   "services",
   "hours",
   "voice",
+  "calendar",
   "plan",
   "provisioning",
   "complete",
@@ -62,6 +64,12 @@ export const messageDirection = pgEnum("message_direction", [
   "outbound",
 ]);
 
+export const messageSender = pgEnum("message_sender", [
+  "customer",
+  "ai",
+  "owner",
+]);
+
 export const messageStatus = pgEnum("message_status", [
   "queued",
   "sent",
@@ -93,7 +101,22 @@ export const contactSource = pgEnum("contact_source", [
   "manual",
 ]);
 
+export const calendarProvider = pgEnum("calendar_provider", [
+  "google",
+  "microsoft",
+]);
+
 const businessOwnerCheck = sql`exists (select 1 from public.businesses b where b.id = business_id and b.owner_user_id = (select auth.uid()))`;
+
+export type NotifyEvent = "appointment" | "emergency" | "callSummary";
+export type NotifyChannel = { sms: boolean; email: boolean };
+export type NotifyChannels = Record<NotifyEvent, NotifyChannel>;
+
+export const DEFAULT_NOTIFY_CHANNELS: NotifyChannels = {
+  appointment: { sms: true, email: true },
+  emergency: { sms: true, email: true },
+  callSummary: { sms: true, email: false },
+};
 
 export const businesses = pgTable(
   "businesses",
@@ -109,13 +132,24 @@ export const businesses = pgTable(
     phoneForwarding: text(),
     serviceAreaZips: text().array(),
     hours: jsonb(),
-    calComEventTypeId: text(),
+    calendarProvider: calendarProvider(),
+    calendarAccountEmail: text(),
+    calendarId: text(),
+    calendarRefreshTokenEnc: text(),
+    calendarAccessTokenEnc: text(),
+    calendarTokenExpiresAt: timestamp({ withTimezone: true }),
+    calendarConnectedAt: timestamp({ withTimezone: true }),
     vapiAssistantId: text(),
     twilioSubaccountSid: text(),
     twilioNumber: text(),
     vapiPhoneNumberId: text(),
     googleReviewUrl: text(),
     voiceId: text().notNull().default("Elliot"),
+    notifyChannels: jsonb().$type<NotifyChannels>().notNull().default({
+      appointment: { sms: true, email: true },
+      emergency: { sms: true, email: true },
+      callSummary: { sms: true, email: false },
+    }),
     stripeCustomerId: text(),
     stripeSubscriptionId: text(),
     stripeSubscriptionStatus: text(),
@@ -187,6 +221,7 @@ export const contacts = pgTable(
     address: text(),
     source: contactSource(),
     tags: text().array(),
+    aiPaused: boolean().notNull().default(false),
     firstSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
@@ -243,6 +278,7 @@ export const messages = pgTable(
       .references(() => businesses.id, { onDelete: "cascade" }),
     contactId: uuid().references(() => contacts.id, { onDelete: "set null" }),
     direction: messageDirection().notNull(),
+    sender: messageSender().notNull().default("ai"),
     body: text().notNull(),
     twilioSid: text().unique(),
     status: messageStatus().notNull().default("queued"),
@@ -320,6 +356,22 @@ export const reviewRequests = pgTable(
     }),
   ],
 ).enableRLS();
+
+/**
+ * Idempotency log for inbound webhooks. Recorded ON CONFLICT DO NOTHING with
+ * unique (provider, eventId) — if the insert returns nothing, we've already
+ * processed this event and the handler can return early.
+ */
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    provider: text().notNull(),
+    eventId: text().notNull(),
+    receivedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("webhook_events_provider_event_id_unique").on(t.provider, t.eventId)],
+);
 
 export const events = pgTable(
   "events",

@@ -6,8 +6,10 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import {
   businesses,
+  DEFAULT_NOTIFY_CHANNELS,
   knowledgeBase,
   type NewBusiness,
+  type NotifyChannels,
 } from "@/lib/db/schema";
 import { requireBusiness } from "@/lib/db/queries";
 import { deployAssistant } from "@/lib/voice/deploy";
@@ -51,6 +53,16 @@ const settingsSchema = z.object({
   voicemailScript: z.string().optional(),
   afterHoursPolicy: z.string().optional(),
   quoteCallbackWindow: z.string().optional(),
+
+  // notifications
+  notifyChannels: z.string().optional(),
+});
+
+const channelSchema = z.object({ sms: z.boolean(), email: z.boolean() });
+const notifyChannelsSchema = z.object({
+  appointment: channelSchema,
+  emergency: channelSchema,
+  callSummary: channelSchema,
 });
 
 export type SaveSettingsState = {
@@ -88,10 +100,16 @@ export async function saveSettings(
   let hours: unknown;
   let services: unknown;
   let faqs: unknown;
+  let notifyChannels: NotifyChannels = DEFAULT_NOTIFY_CHANNELS;
   try {
     hours = hoursSchema.parse(parseJson(v.hours, "hours"));
     services = parseJson(v.services, "services");
     faqs = parseJson(v.faqs, "faqs");
+    if (v.notifyChannels) {
+      notifyChannels = notifyChannelsSchema.parse(
+        parseJson(v.notifyChannels, "notifyChannels"),
+      );
+    }
   } catch (err) {
     return {
       ok: false,
@@ -115,6 +133,7 @@ export async function saveSettings(
     serviceAreaZips: zips,
     googleReviewUrl: v.googleReviewUrl || null,
     voiceId: v.voiceId ?? DEFAULT_VOICE_ID,
+    notifyChannels,
     hours: hours as Record<string, unknown>,
     updatedAt: new Date(),
   };
