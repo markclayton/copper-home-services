@@ -62,10 +62,14 @@ export default function TermsPage() {
       </p>
       <p>
         <strong>Consent.</strong> Outbound SMS to your customers is sent only
-        in response to a consumer-initiated text. Consumers establish prior
-        express consent under TCPA by texting your published business
-        number. You must not use Copper to send unsolicited promotional or
-        marketing messages.
+        after the consumer has established prior express consent. Consent is
+        established when the consumer either (a) sends an inbound text to
+        your published business number, or (b) calls your business number
+        and verbally agrees, on the recorded call, to receive a confirmation
+        or follow-up text after the AI explicitly asks permission. The
+        consent moment is captured in the call transcript and retained as
+        audit evidence. You must not use Copper to send unsolicited
+        promotional or marketing messages.
       </p>
       <p>
         <strong>Opt-out.</strong> Consumers can reply <code>STOP</code>,{" "}
