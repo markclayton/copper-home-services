@@ -321,6 +321,11 @@ export const appointments = pgTable(
     serviceType: text(),
     notes: text(),
     status: appointmentStatus().notNull().default("scheduled"),
+    /** Explicit verbal SMS consent captured by the AI before booking.
+     *  When false, no customer-facing SMS (confirmation, reminder, review
+     *  request) is sent for this appointment — required for A2P 10DLC
+     *  compliance. The call transcript is the audit trail. */
+    smsConsent: boolean().notNull().default(false),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

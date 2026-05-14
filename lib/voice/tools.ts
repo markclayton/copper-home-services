@@ -59,7 +59,7 @@ export function buildToolDefs(businessId: string): VapiToolDef[] {
       function: {
         name: "book_appointment",
         description:
-          "Book a specific slot returned by get_available_slots. The caller must have agreed to a specific time.",
+          "Book a specific slot returned by get_available_slots. Before calling this you MUST have (1) the caller's verbal agreement to a specific time, and (2) their explicit yes/no on whether we may text them a confirmation. Pass that yes/no as sms_consent.",
         parameters: {
           type: "object",
           properties: {
@@ -81,6 +81,11 @@ export function buildToolDefs(businessId: string): VapiToolDef[] {
                 "Caller's email if collected; otherwise omit and we'll use a placeholder.",
             },
             notes: { type: "string", description: "Issue description." },
+            sms_consent: {
+              type: "boolean",
+              description:
+                "REQUIRED. True only if the caller explicitly said yes when you asked permission to text them a confirmation and pre-arrival reminder. If they declined, said 'no', or were ambiguous, set this to false — the appointment will still be booked but no SMS will be sent.",
+            },
           },
           required: [
             "start_at_iso",
@@ -88,6 +93,7 @@ export function buildToolDefs(businessId: string): VapiToolDef[] {
             "address",
             "customer_phone",
             "customer_name",
+            "sms_consent",
           ],
         },
       },

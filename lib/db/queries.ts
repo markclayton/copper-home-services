@@ -419,6 +419,7 @@ export async function listUpcomingAppointments(
       serviceType: appointments.serviceType,
       notes: appointments.notes,
       status: appointments.status,
+      smsConsent: appointments.smsConsent,
       createdAt: appointments.createdAt,
       updatedAt: appointments.updatedAt,
       contactName: contacts.name,

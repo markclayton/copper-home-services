@@ -166,16 +166,35 @@ export const reviewRequestFlow = inngest.createFunction(
           .limit(1);
         phone = c?.phone ?? null;
       }
+      // Pull SMS consent off the appointment. No consent = no follow-up
+      // SMS of any kind (A2P 10DLC compliance — see migration 0012).
+      const [appt] = await db
+        .select({ smsConsent: appointments.smsConsent })
+        .from(appointments)
+        .where(eq(appointments.id, appointmentId))
+        .limit(1);
       return {
         businessName: biz?.name,
         phone,
         reviewsEnabled: biz?.reviewRequestsEnabled ?? true,
         googleReviewUrl: biz?.googleReviewUrl ?? null,
+        smsConsent: appt?.smsConsent ?? false,
       };
     });
 
     if (!ctx.phone || !ctx.businessName) {
       return { skipped: "no phone or business" };
+    }
+
+    if (!ctx.smsConsent) {
+      await step.run("log-no-consent", async () => {
+        await db.insert(events).values({
+          businessId,
+          type: "review.skipped_no_consent",
+          payload: { appointmentId },
+        });
+      });
+      return { skipped: "no sms consent" };
     }
 
     // Two branches: full review request (link + 48h nudge) vs plain

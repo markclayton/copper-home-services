@@ -166,6 +166,10 @@ async function handleBookAppointment(
   const serviceType = String(args.service_type ?? "service visit");
   const address = String(args.address ?? "");
   const notes = typeof args.notes === "string" ? args.notes : undefined;
+  // A2P 10DLC compliance: SMS only fires when the AI captured an explicit
+  // yes from the caller. Default to false (no SMS) for safety — better to
+  // miss a confirmation text than to send one without consent.
+  const smsConsent = args.sms_consent === true;
 
   if (!startISO || !customerPhone || !customerName) {
     return "Missing required fields. I need start_at_iso, customer_phone, and customer_name.";
@@ -224,6 +228,7 @@ async function handleBookAppointment(
       serviceType,
       notes: [address, notes].filter(Boolean).join("\n"),
       status: "scheduled",
+      smsConsent,
     })
     .returning({ id: appointments.id });
 
@@ -242,20 +247,29 @@ async function handleBookAppointment(
     ctx.business.timezone,
   );
 
-  // Customer confirmation stays sync — the AI promises a text on the call.
-  // Owner notification is fanned out by notifyOwnerAppointmentBooked which
-  // also listens for the appointment/booked event fired above.
-  await sendSms({
-    businessId: ctx.business.id,
-    contactId,
-    to: customerPhone,
-    body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply with questions.`,
-  }).catch(() => {
-    // Customer SMS failure shouldn't fail the booking; the Inngest owner
-    // notification will still fire so the owner sees the booking.
-  });
+  // Customer confirmation only fires when the AI captured explicit SMS
+  // consent. Owner notification is fanned out by notifyOwnerAppointmentBooked
+  // which listens for the appointment/booked event fired above — that one's
+  // owner-facing and not gated by customer consent.
+  if (smsConsent) {
+    await sendSms({
+      businessId: ctx.business.id,
+      contactId,
+      to: customerPhone,
+      body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply STOP to opt out.`,
+    }).catch(() => {
+      // Customer SMS failure shouldn't fail the booking; the Inngest owner
+      // notification will still fire so the owner sees the booking.
+    });
+    return `Booked ${serviceType} for ${friendlyTime}. Confirmation text sent.`;
+  }
 
-  return `Booked ${serviceType} for ${friendlyTime}. Confirmation text sent.`;
+  await recordEvent(ctx.business.id, "appointment.sms_skipped_no_consent", {
+    appointmentId: appt.id,
+    serviceType,
+    startAt: booking.startISO,
+  });
+  return `Booked ${serviceType} for ${friendlyTime}. No text will be sent — caller declined.`;
 }
 
 async function handleLookupCustomer(
