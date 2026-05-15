@@ -171,7 +171,7 @@ function Hero({ isAuthed }: { isAuthed: boolean }) {
             className="text-xs text-ink-500 mt-1"
             {...slide(0.65)}
           >
-            $500/month · No setup fee · Cancel anytime
+            From $79/month · No setup fee · Cancel anytime
           </motion.p>
         </div>
 
@@ -818,87 +818,180 @@ function HowItWorks() {
 
 /* ─── Pricing ─────────────────────────────────────────────────────────── */
 
+type PricingTier = {
+  id: "solo" | "business" | "custom";
+  name: string;
+  price: string;
+  cadence?: string;
+  tagline: string;
+  description: string;
+  features: string[];
+  cta: { href: string; label: string };
+  highlighted?: boolean;
+};
+
 function Pricing({ isAuthed }: { isAuthed: boolean }) {
-  const included = [
-    "Dedicated AI receptionist",
-    "Local phone number included",
-    "Unlimited inbound calls",
-    "Real-time call transcripts & summaries",
-    "Calendar booking via Google Calendar",
-    "Automated review requests",
-    "SMS + email owner notifications",
-    "Cancel anytime, no questions",
+  const soloHref = isAuthed ? "/dashboard" : "/onboard/start?plan=solo";
+  const businessHref = isAuthed ? "/dashboard" : "/onboard/start?plan=business";
+
+  const tiers: PricingTier[] = [
+    {
+      id: "solo",
+      name: "Solo",
+      price: "$79",
+      cadence: "/month",
+      tagline: "For one-truck operations.",
+      description:
+        "Lawn care, handyman, solo trades. Built so the price doesn't hurt when it's just you and the phone.",
+      features: [
+        "Dedicated AI receptionist",
+        "Local phone number included",
+        "Unlimited inbound calls",
+        "Google Calendar booking",
+        "Automated review requests",
+        "SMS + email owner alerts",
+      ],
+      cta: { href: soloHref, label: isAuthed ? "Open dashboard" : "Start Solo" },
+    },
+    {
+      id: "business",
+      name: "Business",
+      price: "$249",
+      cadence: "/month",
+      tagline: "For 2-10 person shops.",
+      description:
+        "When the phone rings a hundred times a month and you've got more than one truck on the road.",
+      features: [
+        "Everything in Solo",
+        "Built for higher call volume",
+        "Priority email support",
+        "Multi-user dashboard access",
+      ],
+      cta: {
+        href: businessHref,
+        label: isAuthed ? "Open dashboard" : "Start Business",
+      },
+      highlighted: true,
+    },
+    {
+      id: "custom",
+      name: "Custom",
+      price: "Let's talk",
+      tagline: "For multi-location & integrations.",
+      description:
+        "Custom integrations (FieldEdge, ServiceTitan, Housecall Pro), multi-location routing, and hands-on setup for larger teams.",
+      features: [
+        "Everything in Business",
+        "Custom integrations",
+        "Multi-location routing",
+        "Hands-on onboarding & training",
+      ],
+      cta: { href: "/contact-sales", label: "Contact us" },
+    },
   ];
+
   const reduced = useReducedMotion();
+
   return (
     <section id="pricing" className="border-b border-ink/10 bg-cream-200">
-      <div className="mx-auto max-w-4xl px-6 py-20 md:py-28">
-        <Reveal className="text-center mb-10">
+      <div className="mx-auto max-w-6xl px-6 py-20 md:py-28">
+        <Reveal className="text-center mb-14 max-w-2xl mx-auto">
           <div className="text-xs uppercase tracking-[0.18em] text-copper-600 font-medium mb-3">
             Pricing
           </div>
           <h2 className="font-display text-3xl md:text-4xl leading-tight tracking-tight">
-            One plan. Everything included.
+            Built so the solo can afford it. Built so the shop can scale on it.
           </h2>
           <p className="text-ink-700 mt-3">
-            No setup fee. No per-minute charges. No sales calls.
+            No setup fee. No per-minute charges. Cancel anytime.
           </p>
         </Reveal>
 
-        <motion.div
-          className="relative"
-          initial={{ opacity: 0, y: reduced ? 0 : 20, scale: reduced ? 1 : 0.98 }}
-          whileInView={{ opacity: 1, y: 0, scale: 1 }}
-          viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.9, ease: EASE }}
-        >
-          <div className="absolute -inset-1 rounded-xl bg-copper opacity-100" />
-          <div className="relative rounded-xl bg-cream-50 border border-ink/15 p-8 md:p-10 grid md:grid-cols-[1fr_auto] gap-8 items-end">
-            <div>
-              <div className="text-xs uppercase tracking-wider text-ink-500 font-medium">
-                Copper · monthly
-              </div>
-              <div className="flex items-baseline gap-2 mt-2">
-                <span className="font-display text-6xl md:text-7xl leading-none tracking-tight">
-                  $500
-                </span>
-                <span className="text-ink-500">/month</span>
-              </div>
-              <p className="text-sm text-ink-500 mt-2">
-                Billed monthly. Cancel anytime.
-              </p>
+        <div className="grid md:grid-cols-3 gap-5 md:gap-6 items-stretch">
+          {tiers.map((tier, i) => (
+            <motion.div
+              key={tier.id}
+              className="relative flex"
+              initial={{
+                opacity: 0,
+                y: reduced ? 0 : 24,
+                scale: reduced ? 1 : 0.98,
+              }}
+              whileInView={{ opacity: 1, y: 0, scale: 1 }}
+              viewport={{ once: true, amount: 0.25 }}
+              transition={{ duration: 0.8, ease: EASE, delay: i * 0.08 }}
+            >
+              <PricingCard tier={tier} />
+            </motion.div>
+          ))}
+        </div>
 
-              <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-2.5 mt-8">
-                {included.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-2.5 text-sm text-ink-700"
-                  >
-                    <Check
-                      size={16}
-                      className="text-copper-600 shrink-0 mt-0.5"
-                    />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <CTAButton
-              href={isAuthed ? "/dashboard" : "/auth/sign-up"}
-              label={isAuthed ? "Open dashboard" : "Get started"}
-              prominent
-              fullWidthOnMobile
-            />
-          </div>
-        </motion.div>
-
-        <p className="text-center text-xs text-ink-500 mt-6">
+        <p className="text-center text-xs text-ink-500 mt-8">
           Carrier fees for SMS and outbound calls billed at cost. Typically
           under $20/month for a busy shop.
         </p>
       </div>
     </section>
+  );
+}
+
+function PricingCard({ tier }: { tier: PricingTier }) {
+  return (
+    <div className="relative w-full flex flex-col">
+      {tier.highlighted && (
+        <div className="absolute -inset-1 rounded-xl bg-copper opacity-100" />
+      )}
+      <div
+        className={`relative flex-1 rounded-xl bg-cream-50 border ${
+          tier.highlighted ? "border-ink/15" : "border-ink/15"
+        } p-6 md:p-7 flex flex-col`}
+      >
+        {tier.highlighted && (
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-copper text-cream-100 text-[10px] uppercase tracking-wider font-medium px-3 py-1 rounded-full">
+            Most popular
+          </div>
+        )}
+        <div className="text-xs uppercase tracking-wider text-ink-500 font-medium">
+          {tier.name}
+        </div>
+        <div className="flex items-baseline gap-1.5 mt-2">
+          <span className="font-display text-4xl md:text-5xl leading-none tracking-tight">
+            {tier.price}
+          </span>
+          {tier.cadence && (
+            <span className="text-ink-500 text-sm">{tier.cadence}</span>
+          )}
+        </div>
+        <p className="text-sm text-ink-700 mt-2 font-medium">{tier.tagline}</p>
+        <p className="text-sm text-ink-500 mt-2 leading-relaxed">
+          {tier.description}
+        </p>
+
+        <ul className="space-y-2.5 mt-6 flex-1">
+          {tier.features.map((item) => (
+            <li
+              key={item}
+              className="flex items-start gap-2.5 text-sm text-ink-700"
+            >
+              <Check
+                size={16}
+                className="text-copper-600 shrink-0 mt-0.5"
+              />
+              {item}
+            </li>
+          ))}
+        </ul>
+
+        <div className="mt-7">
+          <CTAButton
+            href={tier.cta.href}
+            label={tier.cta.label}
+            prominent={tier.highlighted}
+            fullWidthOnMobile
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 

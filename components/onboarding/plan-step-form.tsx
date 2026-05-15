@@ -8,8 +8,25 @@ import {
   startSubscription,
   type PlanStepState,
 } from "@/app/onboard/plan/actions";
+import type { SelfServePlan } from "@/lib/billing/stripe";
 
 const INITIAL: PlanStepState = { ok: false };
+
+const PLAN_DETAILS: Record<
+  SelfServePlan,
+  { label: string; price: string; tagline: string }
+> = {
+  solo: {
+    label: "Solo",
+    price: "$79/month",
+    tagline: "For one-truck operations.",
+  },
+  business: {
+    label: "Business",
+    price: "$249/month",
+    tagline: "For 2-10 person shops.",
+  },
+};
 
 function formatPhone(phone: string | null): string {
   if (!phone) return "";
@@ -23,14 +40,17 @@ function formatPhone(phone: string | null): string {
 export function PlanStepForm({
   businessId,
   initialNumber,
+  initialPlan,
 }: {
   businessId: string;
   initialNumber: string | null;
+  initialPlan: SelfServePlan;
 }) {
   const [twilioNumber, setTwilioNumber] = useState<string | null>(
     initialNumber,
   );
   const [pollError, setPollError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<SelfServePlan>(initialPlan);
   const [withTrial, setWithTrial] = useState(true);
   const [state, formAction, pending] = useActionState(
     startSubscription,
@@ -66,11 +86,14 @@ export function PlanStepForm({
     };
   }, [businessId, twilioNumber]);
 
+  const selectedPrice = PLAN_DETAILS[plan].price;
+
   return (
     <div className="flex flex-col gap-2">
       <h1 className="text-2xl font-semibold">Almost there</h1>
       <p className="text-sm text-muted-foreground mb-4">
-        Pick how you want to start. You can cancel any time from the dashboard.
+        Pick how you want to start. You can change your plan or cancel any time
+        from the dashboard.
       </p>
 
       <div
@@ -111,8 +134,54 @@ export function PlanStepForm({
         )}
       </div>
 
+      <div className="flex flex-col gap-3 mb-2">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+          Plan
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {(Object.keys(PLAN_DETAILS) as SelfServePlan[]).map((option) => {
+            const details = PLAN_DETAILS[option];
+            const active = plan === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setPlan(option)}
+                className={cn(
+                  "rounded-md border p-4 text-left transition-colors",
+                  active
+                    ? "border-primary bg-accent/40"
+                    : "border-muted-foreground/20 hover:border-muted-foreground/40",
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-medium">{details.label}</div>
+                  <div
+                    className={cn(
+                      "size-5 rounded-full border-2 flex items-center justify-center shrink-0",
+                      active
+                        ? "border-primary bg-primary"
+                        : "border-muted-foreground/30",
+                    )}
+                  >
+                    {active && (
+                      <Check size={12} className="text-primary-foreground" />
+                    )}
+                  </div>
+                </div>
+                <div className="text-sm mt-1">{details.price}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {details.tagline}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <form action={formAction} className="flex flex-col gap-3">
         <input type="hidden" name="withTrial" value={String(withTrial)} />
+        <input type="hidden" name="plan" value={plan} />
 
         <button
           type="button"
@@ -142,7 +211,7 @@ export function PlanStepForm({
                 be charged until day 7. Cancel any time.
               </p>
               <div className="text-xs mt-2">
-                Then <span className="font-medium">$500/month</span>
+                Then <span className="font-medium">{selectedPrice}</span>
               </div>
             </div>
           </div>
@@ -175,7 +244,7 @@ export function PlanStepForm({
                 Skip the trial and start using Copper today.
               </p>
               <div className="text-xs mt-2">
-                <span className="font-medium">$500/month</span>, billed today
+                <span className="font-medium">{selectedPrice}</span>, billed today
               </div>
             </div>
           </div>

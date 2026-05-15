@@ -61,6 +61,8 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   STRIPE_PRICE_SETUP: z.string().min(1).optional(),
   STRIPE_PRICE_MRR: z.string().min(1).optional(),
+  STRIPE_PRICE_SOLO: z.string().min(1).optional(),
+  STRIPE_PRICE_BUSINESS: z.string().min(1).optional(),
 
   INNGEST_EVENT_KEY: z.string().min(1).optional(),
   INNGEST_SIGNING_KEY: z.string().min(1).optional(),

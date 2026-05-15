@@ -62,6 +62,26 @@ export async function createCheckoutSession(args: {
   return { url: session.url };
 }
 
+export type SelfServePlan = "solo" | "business";
+
+/**
+ * Resolves the Stripe price for a self-serve plan. Falls back through:
+ *   1. Plan-specific env (STRIPE_PRICE_SOLO / STRIPE_PRICE_BUSINESS)
+ *   2. Legacy STRIPE_PRICE_MRR (single-price deploys keep working)
+ *   3. The other plan's env (so a deploy with only one tier configured
+ *      doesn't crash if the cookie lands on the other one)
+ */
+export function resolveSelfServePrice(plan: SelfServePlan): string {
+  const planEnv = plan === "solo" ? env.STRIPE_PRICE_SOLO : env.STRIPE_PRICE_BUSINESS;
+  if (planEnv) return planEnv;
+  if (env.STRIPE_PRICE_MRR) return env.STRIPE_PRICE_MRR;
+  const otherEnv = plan === "solo" ? env.STRIPE_PRICE_BUSINESS : env.STRIPE_PRICE_SOLO;
+  if (otherEnv) return otherEnv;
+  throw new Error(
+    "No Stripe price configured. Set STRIPE_PRICE_SOLO, STRIPE_PRICE_BUSINESS, or STRIPE_PRICE_MRR.",
+  );
+}
+
 /**
  * New-tenant signup checkout — final step of the onboarding wizard.
  * Includes a 7-day free trial with card up front. The card isn't charged
@@ -71,21 +91,22 @@ export async function createOnboardingCheckout(args: {
   customerId: string;
   businessId: string;
   withTrial: boolean;
+  plan: SelfServePlan;
 }): Promise<{ url: string }> {
   const stripe = getStripe();
-  const mrrPrice = requireEnv("STRIPE_PRICE_MRR");
+  const price = resolveSelfServePrice(args.plan);
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: args.customerId,
-    line_items: [{ price: mrrPrice, quantity: 1 }],
+    line_items: [{ price, quantity: 1 }],
     success_url: `${env.APP_URL}/onboard/setup/${args.businessId}`,
     cancel_url: `${env.APP_URL}/onboard/plan?status=canceled`,
     subscription_data: {
-      metadata: { businessId: args.businessId },
+      metadata: { businessId: args.businessId, plan: args.plan },
       ...(args.withTrial ? { trial_period_days: 7 } : {}),
     },
-    metadata: { businessId: args.businessId, flow: "new_tenant" },
+    metadata: { businessId: args.businessId, flow: "new_tenant", plan: args.plan },
   });
 
   if (!session.url) {

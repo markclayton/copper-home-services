@@ -11,6 +11,68 @@ Built against [`flagship-v1-prd.md`](./flagship-v1-prd.md). V1 success criteria:
 
 ---
 
+## Pricing & cost analysis
+
+Three self-serve tiers (Solo / Business / Custom) as of May 2026. Pricing was tested against actual per-minute vendor rates to confirm a healthy gross margin at expected volume per tier.
+
+### Per-minute cost (current stack)
+
+Stack: Vapi platform + Deepgram Nova-2 STT + Claude Haiku 4.5 (with prompt caching) + Vapi-hosted voices + BYO Twilio number into Vapi.
+
+| Component | Rate | Source |
+|---|---|---|
+| Vapi platform | $0.05 | published |
+| Deepgram Nova-2 STT | ~$0.0043 | Deepgram price list |
+| Claude Haiku 4.5 (cached system prompt) | ~$0.005–0.01 | $1/M in, $5/M out |
+| Vapi-hosted voice | ~$0.03–0.05 | unpublished — verify on invoice |
+| Twilio inbound voice | $0.0085 | Twilio price list |
+| **All-in per minute** | **~$0.10–0.12** | |
+
+### Per-month variable cost scenarios
+
+| | Solo (20 calls × 2min = 40min) | Small biz (75 × 3.5min = 260min) | Mid biz (200 × 4min = 800min) |
+|---|---|---|---|
+| Voice stack (~$0.10/min) | ~$4 | ~$26 | ~$80 |
+| Twilio number | $1.15 | $1.15 | $1.15 |
+| Twilio SMS + A2P carrier fees | ~$3 | ~$7 | ~$15 |
+| **Total variable (pre-Stripe)** | **~$8** | **~$34** | **~$96** |
+
+Platform fixed costs (Supabase Pro $25 + Vercel Pro $20 + Inngest Pro ~$50 ≈ $95/mo) amortize across all customers — negligible at 50+ customers.
+
+### Tier structure
+
+| Tier | Price | Target | Stripe price env |
+|---|---|---|---|
+| **Solo** | $79/mo | One-truck operations (lawn care, handyman, solo trades) | `STRIPE_PRICE_SOLO` |
+| **Business** | $249/mo | 2-10 person shops | `STRIPE_PRICE_BUSINESS` |
+| **Custom** | starts at $599/mo | Multi-location, custom integrations (FieldEdge / ServiceTitan / Housecall Pro), white-glove onboarding | quoted manually |
+
+Stripe fee on each subscription is 2.9% + $0.30 (~$2.59 on Solo, ~$7.52 on Business). Target gross margin per tier at expected volume:
+
+- **Solo** — ~$68/mo ($79 − ~$8 variable − $2.59 Stripe)
+- **Business** — ~$207/mo ($249 − ~$34 variable − $7.52 Stripe)
+- **Custom** — deal-dependent; target ≥$300/mo after integrations setup time
+
+Solo is the GTM hook — small enough to be a no-brainer for an owner whose biggest cost objection is "I'm one person." Business is the revenue target — most multi-person shops fit here. Custom is white-glove with a real integration scope; revisit once we have ~20 self-serve customers.
+
+### Plan threading through onboarding
+
+CTA flow: landing pricing card → `/onboard/start?plan=<solo|business>` route handler sets a short-lived `copper_plan` cookie → redirects to `/auth/sign-up` → after onboarding, `app/onboard/plan/actions.ts` reads the cookie and passes the plan to `createOnboardingCheckout`, which selects the matching Stripe price env var. Falls back to `STRIPE_PRICE_MRR` (or Solo) if neither plan-specific var is set, so existing single-price deploys keep working.
+
+Custom-tier CTA goes to `/contact-sales` (simple email form → Resend → `info@joincopper.io`), not through the self-serve checkout.
+
+### Deferred: minute-cap enforcement
+
+Tier marketing copy implies usage limits ("designed for ~X minutes/month"), but the codebase does **not** currently enforce per-tier minute caps. If a Solo customer has a runaway month they'll cost more variable than $79 covers. Acceptable under ~10 customers; before we open the floodgates, build:
+
+- Rolling 30-day call-minute counter per business
+- Soft warning at 80% of cap, hard cap at 100% with an upgrade CTA
+- Optional overage billing via Stripe metered usage
+
+The existing `SMS_MONTHLY_CAP_PER_BUSINESS` enforcement in `lib/telephony/twilio.ts` is the template — same shape, different unit.
+
+---
+
 ## Tech stack
 
 | Layer | Choice |
@@ -472,9 +534,11 @@ Calendar scopes are **sensitive** (not restricted — those need a full third-pa
 
 ### Stripe
 
-- Create two prices in the Stripe dashboard:
-  - One-time setup fee → `STRIPE_PRICE_SETUP`
-  - Recurring monthly subscription → `STRIPE_PRICE_MRR`
+- Create one Stripe price per self-serve tier. Tier → env var mapping:
+  - Solo ($79/mo recurring) → `STRIPE_PRICE_SOLO`
+  - Business ($249/mo recurring) → `STRIPE_PRICE_BUSINESS`
+  - `STRIPE_PRICE_MRR` is a legacy fallback — used by self-serve checkout only if neither plan-specific var is set, and by the dashboard activation flow at `/dashboard/billing`. Leave it set to the Business price (or Solo if you only want one) so existing flows keep working.
+  - Optional one-time setup fee → `STRIPE_PRICE_SETUP` (only the dashboard activation flow uses this; self-serve has no setup fee).
 - Add a webhook endpoint pointing at `https://<your-domain>/api/webhooks/stripe`. Subscribe to: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
 - Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
 
@@ -590,7 +654,8 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] Inngest function `tenantProvisioning` runs the orchestrator on payment success and flips `status` to `live`
 
 ### Billing
-- [x] Self-serve Checkout: `createSelfServeCheckout` (subscription only, $500/mo, no setup fee)
+- [x] Self-serve Checkout: `createOnboardingCheckout` (subscription only, no setup fee). Plan-aware — accepts `plan: "solo" | "business"` and picks the matching Stripe price via `resolveSelfServePrice`. Plan choice flows from the landing pricing CTA via the `copper_plan` cookie set by `/onboard/start`.
+- [x] Custom-tier inquiry form at `/contact-sales` — Resend email to `info@joincopper.io` (form schema validated, error path falls back to a "email us directly" message).
 - [x] Existing-tenant activation Checkout: `createCheckoutSession` (optional setup fee + MRR, used from `/dashboard/billing`)
 - [x] Customer portal for self-service card / invoice management
 - [x] Webhook handles checkout completion, subscription lifecycle, invoice events
@@ -639,7 +704,7 @@ This validates that an unauthenticated visitor can go from `/onboard` to a worki
 
 **Prerequisites:**
 - All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Google Calendar + Stripe + OpenRouter + Inngest.
-- `STRIPE_PRICE_MRR` set to a recurring price ($500/mo). `STRIPE_PRICE_SETUP` left empty (self-serve has no setup fee).
+- At least one of `STRIPE_PRICE_SOLO` ($79/mo) or `STRIPE_PRICE_BUSINESS` ($249/mo) set, or `STRIPE_PRICE_MRR` as a single-price fallback. `STRIPE_PRICE_SETUP` left empty (self-serve has no setup fee).
 - `TWILIO_MESSAGING_SERVICE_SID` set so new numbers auto-attach to your A2P 10DLC Campaign. (Skip if you're using demo mode below.)
 - Stripe webhook endpoint configured to point at `https://<your-tunnel>/api/webhooks/stripe`.
 - A test tenant has connected their Google Calendar via `/dashboard/settings → Integrations` so booking has real availability.

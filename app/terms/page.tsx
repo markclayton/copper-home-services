@@ -37,11 +37,14 @@ export default function TermsPage() {
 
       <h2>Pricing and billing</h2>
       <p>
-        Copper costs $500/month, billed monthly via Stripe starting on the
-        day you sign up. There&apos;s no setup fee. Carrier costs for SMS and
-        outbound calls are passed through at cost (typically under $20/month).
-        You can cancel anytime; cancellations take effect at the end of the
-        current billing period and you won&apos;t be charged again.
+        Copper is offered in self-serve tiers (Solo at $79/month, Business at
+        $249/month) and a Custom tier for multi-location operations and
+        integrations (quoted directly). Subscriptions are billed monthly via
+        Stripe starting on the day you sign up. There&apos;s no setup fee on
+        the self-serve tiers. Carrier costs for SMS and outbound calls are
+        passed through at cost (typically under $20/month). You can cancel
+        anytime; cancellations take effect at the end of the current billing
+        period and you won&apos;t be charged again.
       </p>
 
       <h2>Acceptable use</h2>
