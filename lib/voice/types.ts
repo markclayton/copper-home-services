@@ -73,11 +73,6 @@ export type VapiStatusUpdate = {
   status: string;
 };
 
-export type VapiAssistantRequest = {
-  type: "assistant-request";
-  call: VapiCallSummary;
-};
-
 export type VapiChattyUpdate = {
   type:
     | "conversation-update"
@@ -92,7 +87,6 @@ export type VapiServerMessage =
   | VapiEndOfCallReport
   | VapiToolCallsMessage
   | VapiStatusUpdate
-  | VapiAssistantRequest
   | VapiChattyUpdate;
 
 export type VapiServerPayload = {

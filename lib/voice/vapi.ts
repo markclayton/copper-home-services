@@ -1,6 +1,6 @@
 /**
- * Vapi REST client — narrow surface used by the speed-to-lead flow and
- * provisioning. Webhook handling lives in the route at
+ * Vapi REST client — narrow surface used by tenant provisioning (assistant
+ * + phone number lifecycle). Webhook handling lives in the route at
  * app/api/webhooks/vapi/[business_id]/route.ts.
  *
  * Docs: https://docs.vapi.ai/api-reference
@@ -30,37 +30,6 @@ async function vapiFetch<T>(path: string, opts: VapiInit = {}): Promise<T> {
     throw new Error(`Vapi ${opts.method ?? "GET"} ${path} ${res.status}: ${text}`);
   }
   return (await res.json()) as T;
-}
-
-export type CreateOutboundCallArgs = {
-  phoneNumberId: string;
-  assistantId: string;
-  customerNumber: string;
-  customerName?: string;
-  metadata?: Record<string, unknown>;
-};
-
-type VapiCallResponse = {
-  id: string;
-  orgId: string;
-  status: string;
-  type: string;
-  createdAt: string;
-};
-
-export async function createOutboundCall(args: CreateOutboundCallArgs) {
-  return vapiFetch<VapiCallResponse>("/call/phone", {
-    method: "POST",
-    body: {
-      phoneNumberId: args.phoneNumberId,
-      assistantId: args.assistantId,
-      customer: {
-        number: args.customerNumber,
-        name: args.customerName,
-      },
-      metadata: args.metadata,
-    },
-  });
 }
 
 /**

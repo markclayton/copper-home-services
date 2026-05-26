@@ -122,7 +122,6 @@ Customer phone ─► Twilio number ─► Vapi assistant
 
 Other entry points:
 
-- `/api/webhooks/lead/{business_id}` — web form lead → fires Inngest `lead/web-form-submitted` → outbound Vapi call
 - `/api/webhooks/twilio/sms/{business_id}` — inbound SMS persisted (signature-verified) → fires Inngest `sms/inbound-received` → AI reply via Twilio
 - `/api/webhooks/stripe` — subscription lifecycle → DB
 - `/api/inngest` — Inngest function registry (cron + event handlers)
@@ -386,7 +385,6 @@ Run through this before flipping DNS at a new domain. Order matters — the env 
 - [ ] Sign up flow end-to-end in incognito with Stripe test card `4242 4242 4242 4242`
 - [ ] Place a real call → AI answers → book an appointment → confirm owner SMS + email arrive
 - [ ] Throw a deliberate error (or hit a 404) → confirm Sentry receives it
-- [ ] POST 13 leads in one hour to `/api/webhooks/lead/<business_id>` → the 13th returns `429` with `Retry-After: 600`
 - [ ] Replay any Stripe event twice from the dashboard → second response includes `{duplicate: true}` and doesn't mutate state again
 
 ### Production environment guards
@@ -446,7 +444,7 @@ The implementation lives in `lib/auth/allowlist.ts`. Three enforcement points: `
 
 - Create app, link to GitHub repo or use the deploy URL.
 - Set the serve URL to `https://<your-domain>/api/inngest`.
-- Sync once; Inngest discovers `outboundLeadCall`, `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`, `tenantProvisioning`, `notifyOwnerAppointmentBooked`, `notifyOwnerEmergency`, `notifyOwnerCallSummary`, `respondToInboundSms`.
+- Sync once; Inngest discovers `reviewRequestFlow`, `dailyDigest`, `quoteFollowupReminder`, `tenantProvisioning`, `tenantScheduledTeardown`, `notifyOwnerAppointmentBooked`, `notifyOwnerEmergency`, `notifyOwnerCallSummary`, `respondToInboundSms`.
 - Add `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` to Vercel env.
 
 ### Vapi
@@ -597,11 +595,6 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] `lookup_existing_customer` → contacts table query
 - [x] `send_emergency_alert` → fires `emergency/detected` Inngest event for async owner notification (no longer blocks the AI mid-call)
 - [x] `send_quote_followup` → fires `tool/quote-followup` Inngest event
-
-### Outbound voice (Flow 2 — speed-to-lead)
-- [x] Public web-form lead webhook with HMAC-SHA256 signature verification
-- [x] Inngest `outboundLeadCall` function fires Vapi outbound call within seconds
-- [x] Single-attempt only — multi-attempt retry (PRD Flow 2 step 5) deferred to V1.5
 
 ### SMS
 - [x] Outbound SMS via Twilio with DB persistence in `messages`
@@ -789,11 +782,6 @@ If any step fails, the rest of the testing checklist below tests individual feat
 - [ ] Place another call → only SMS arrives for the call summary; booking/emergency channels respected independently
 - [ ] Inngest dev UI shows runs of `notify-owner-appointment-booked`, `notify-owner-emergency`, `notify-owner-call-summary` with per-channel `sent` / `skipped` / `failed` results
 
-### 6. Web form lead → outbound speed-to-lead
-- [ ] Submit a JSON POST to `/api/webhooks/lead/{business_id}` with `{ phone, name, service }` (and the HMAC signature header if `INTERNAL_WEBHOOK_SECRET` is set)
-- [ ] Within ~60 s, the lead phone rings; Vapi opens with "Hi, this is …"
-- [ ] After the call, transcript + summary land in **Calls** as direction = outbound
-- [ ] `events` table shows `lead.web_form.received` then `lead.outbound.call_created`
 
 ### 7. Review request
 - [ ] Manually advance time or shorten the `step.sleepUntil` in `reviewRequestFlow` to test

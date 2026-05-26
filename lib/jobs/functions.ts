@@ -16,14 +16,12 @@ import {
 } from "@/lib/db/schema";
 import { generateSmsReply, type SmsHistoryMessage } from "@/lib/ai/sms";
 import { sendSms } from "@/lib/telephony/twilio";
-import { createOutboundCall } from "@/lib/voice/vapi";
 import { env } from "@/lib/env";
 import {
   inngest,
   type AppointmentBookedData,
   type CallSummaryReadyData,
   type EmergencyDetectedData,
-  type LeadFormData,
   type QuoteFollowupData,
   type SmsInboundReceivedData,
   type TenantProvisionNeededData,
@@ -39,99 +37,6 @@ import {
   renderEmergency,
 } from "@/lib/notifications/templates";
 import { recordWebhookEvent } from "@/lib/db/webhook-idempotency";
-
-/**
- * Speed-to-lead: a website form POST → outbound AI call within ~60 s.
- * V1 = single attempt. Multi-attempt retry (PRD Flow 2) is V1.5.
- */
-export const outboundLeadCall = inngest.createFunction(
-  {
-    id: "outbound-lead-call",
-    triggers: [{ event: "lead/web-form-submitted" }],
-    retries: 2,
-  },
-  async ({ event, step }) => {
-    const { businessId, phone, name, email, service, message, sourceUrl } =
-      event.data as LeadFormData;
-
-    const business = await step.run("load-business", async () => {
-      const [b] = await db
-        .select()
-        .from(businesses)
-        .where(eq(businesses.id, businessId))
-        .limit(1);
-      if (!b) throw new NonRetriableError(`business ${businessId} not found`);
-      return b;
-    });
-
-    if (!business.vapiAssistantId || !business.vapiPhoneNumberId) {
-      await step.run("log-skipped", async () => {
-        await db.insert(events).values({
-          businessId,
-          type: "lead.outbound.skipped_unconfigured",
-          payload: event.data as Record<string, unknown>,
-        });
-      });
-      return { skipped: "vapi not configured for this tenant" };
-    }
-
-    await step.run("upsert-contact", async () => {
-      const [existing] = await db
-        .select({ id: contacts.id })
-        .from(contacts)
-        .where(
-          and(eq(contacts.businessId, businessId), eq(contacts.phone, phone)),
-        )
-        .limit(1);
-
-      if (existing) {
-        await db
-          .update(contacts)
-          .set({
-            lastSeenAt: new Date(),
-            name: name ?? null,
-            email: email ?? null,
-          })
-          .where(eq(contacts.id, existing.id));
-        return existing.id;
-      }
-      const [created] = await db
-        .insert(contacts)
-        .values({
-          businessId,
-          phone,
-          name: name ?? null,
-          email: email ?? null,
-          source: "web_form",
-        })
-        .returning({ id: contacts.id });
-      return created.id;
-    });
-
-    const call = await step.run("create-vapi-call", () =>
-      createOutboundCall({
-        phoneNumberId: business.vapiPhoneNumberId!,
-        assistantId: business.vapiAssistantId!,
-        customerNumber: phone,
-        customerName: name,
-        metadata: { source: "web_form_lead", service, message, sourceUrl },
-      }),
-    );
-
-    await step.run("log-call-created", async () => {
-      await db.insert(events).values({
-        businessId,
-        type: "lead.outbound.call_created",
-        payload: {
-          vapiCallId: call.id,
-          ...(event.data as Record<string, unknown>),
-        },
-      });
-    });
-
-    return { vapiCallId: call.id };
-  },
-);
 
 /**
  * Post-job review request: end_at + 2h → tracked SMS → 48h wait → nudge if

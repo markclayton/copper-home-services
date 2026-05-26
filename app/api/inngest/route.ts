@@ -5,7 +5,6 @@ import {
   notifyOwnerAppointmentBooked,
   notifyOwnerCallSummary,
   notifyOwnerEmergency,
-  outboundLeadCall,
   quoteFollowupReminder,
   respondToInboundSms,
   reviewRequestFlow,
@@ -16,7 +15,6 @@ import {
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
-    outboundLeadCall,
     reviewRequestFlow,
     dailyDigest,
     quoteFollowupReminder,

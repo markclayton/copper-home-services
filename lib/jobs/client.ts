@@ -1,15 +1,5 @@
 import { Inngest } from "inngest";
 
-export type LeadFormData = {
-  businessId: string;
-  phone: string;
-  name?: string;
-  email?: string;
-  service?: string;
-  message?: string;
-  sourceUrl?: string;
-};
-
 export type AppointmentBookedData = {
   businessId: string;
   appointmentId: string;

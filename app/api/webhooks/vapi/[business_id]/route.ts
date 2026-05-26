@@ -78,13 +78,6 @@ export async function POST(
     case "status-update":
       await handleStatusUpdate(business, message);
       return NextResponse.json({ ok: true });
-    case "assistant-request":
-      await db.insert(events).values({
-        businessId,
-        type: "vapi.assistant-request",
-        payload: message as unknown as Record<string, unknown>,
-      });
-      return NextResponse.json({ ok: true });
     case "conversation-update":
     case "transcript":
     case "speech-update":
