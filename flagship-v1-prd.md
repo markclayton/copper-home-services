@@ -56,7 +56,7 @@ An AI front-office service for owner-operated home services businesses (HVAC, pl
 | Frontend | **Next.js 14 (App Router) + Tailwind + shadcn/ui** | Standard stack, Vercel-native |
 | Booking | **Cal.com** (managed, API) | Don't build a calendar |
 | Background jobs | **Inngest** | Durable, retryable; better than rolling our own queue |
-| LLM (summaries, intent classification) | **OpenRouter** (default model: Anthropic Claude Sonnet 4.5) | Routed via OpenAI-compatible API. Outside the voice loop — Vapi handles in-call inference. |
+| LLM (summaries, intent classification) | **Anthropic API direct** (default model: Claude Sonnet 4.6) | Outside the voice loop — Vapi handles in-call inference. Switched from OpenRouter to direct Anthropic to comply with Google Workspace API Limited Use policy (no training on customer data). |
 | Payments | **Stripe** | Setup fee + recurring MRR |
 | Hosting | **Vercel** (web + API) + **Supabase** (DB) + **Inngest Cloud** | |
 | Observability | **Sentry** + Vercel logs | Errors via Sentry; structured app/event history via the `events` table + Vercel runtime logs. Dedicated log store deferred. |
@@ -283,8 +283,8 @@ TWILIO_ACCOUNT_SID
 TWILIO_AUTH_TOKEN
 TWILIO_DEFAULT_FROM_NUMBER
 
-# OpenRouter (summaries, intent)
-OPENROUTER_API_KEY
+# Anthropic (summaries, intent)
+ANTHROPIC_API_KEY
 
 # Cal.com
 CAL_COM_API_KEY

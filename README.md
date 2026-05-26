@@ -85,7 +85,7 @@ The existing `SMS_MONTHLY_CAP_PER_BUSINESS` enforcement in `lib/telephony/twilio
 | Frontend | Next.js + Tailwind + shadcn/ui |
 | Booking | Google Calendar (OAuth per-tenant; Microsoft Outlook planned) |
 | Background jobs | Inngest |
-| LLM (summaries) | OpenRouter via OpenAI SDK (default: `anthropic/claude-sonnet-4.5`); Vapi handles in-call model separately |
+| LLM (summaries) | Anthropic SDK direct (default: `claude-sonnet-4-6`); Vapi handles in-call model separately |
 | Payments | Stripe (Checkout + customer portal) |
 | Owner email | Resend (optional — owner notifications no-op if unconfigured) |
 | Hosting | Vercel + Supabase + Inngest Cloud |
@@ -109,7 +109,7 @@ Customer phone ─► Twilio number ─► Vapi assistant
                        │                │                 ▼
                        │                │         missed-call SMS
                        │                ▼
-                       │     OpenRouter summarize → calls row
+                       │     Anthropic summarize → calls row
                        ▼
               book_appointment ─► tenant's Google Calendar ─► customer SMS + owner SMS
                                                           │
@@ -158,7 +158,7 @@ lib/
   telephony/twilio.ts                              # SMS send + client
   booking/google.ts                                # Google Calendar (freeBusy + events.insert)
   crypto/tokens.ts                                 # AES-GCM for OAuth tokens at rest
-  ai/llm.ts                                        # call summarization (OpenRouter)
+  ai/llm.ts                                        # call summarization (Anthropic API direct)
   jobs/{client.ts,functions.ts}                    # Inngest
   billing/stripe.ts                                # Stripe client
   provisioning/{index.ts,twilio.ts}                # tenant orchestrator
@@ -183,7 +183,7 @@ scripts/
 
 - [Bun](https://bun.com) 1.3+
 - Supabase project (free tier works)
-- Optional but needed for full E2E: Vapi, Twilio, OpenRouter, Google Cloud (Calendar OAuth), Stripe, Inngest accounts
+- Optional but needed for full E2E: Vapi, Twilio, Anthropic, Google Cloud (Calendar OAuth), Stripe, Inngest accounts
 
 ### 1. Install + env
 
@@ -360,7 +360,7 @@ Run through this before flipping DNS at a new domain. Order matters — the env 
 
 **Standard env:**
 - [ ] `APP_URL` set to the prod origin (no trailing slash)
-- [ ] All Supabase + Stripe + Twilio + Vapi + OpenRouter + Google Calendar + Inngest keys set
+- [ ] All Supabase + Stripe + Twilio + Vapi + Anthropic + Google Calendar + Inngest keys set
 - [ ] `RESEND_API_KEY` + `NOTIFICATIONS_EMAIL_FROM` (or leave unset — email cleanly no-ops)
 - [ ] `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (build-time only)
 - [ ] `TWILIO_MESSAGING_SERVICE_SID` once A2P 10DLC is approved
@@ -551,10 +551,11 @@ Optional. Email notifications use Resend; if unconfigured the email channel clea
 - Set `NOTIFICATIONS_EMAIL_FROM` to a verified sender with a display name, e.g. `Copper <noreply@notifications.joincopper.io>`. The local-part doesn't need to exist as a real mailbox.
 - Templates live in `lib/notifications/templates.ts`; the dispatcher in `lib/notifications/owner.ts` respects the per-tenant `notify_channels` JSON column on `businesses`.
 
-### OpenRouter
+### Anthropic
 
-- API key into `OPENROUTER_API_KEY`. Used only for offline call summarization via the OpenAI-compatible endpoint. Vapi runs the in-call model itself with credentials configured directly in the Vapi dashboard.
-- Default model is `anthropic/claude-sonnet-4.5`. Override by editing `SUMMARY_MODEL` in `lib/ai/llm.ts` — any OpenRouter model id works (e.g. `openai/gpt-4o-mini`, `anthropic/claude-haiku-4.5`).
+- API key into `ANTHROPIC_API_KEY`. Used only for offline post-call summarization (`lib/ai/llm.ts`) — a single tool-call request that returns `{summary, intent, outcome, isEmergency, ownerLine}`. Vapi runs the in-call model itself with credentials configured directly in the Vapi dashboard.
+- Default model is `claude-sonnet-4-6`. Override by editing `SUMMARY_MODEL` in `lib/ai/llm.ts` (any Anthropic model ID).
+- We previously routed this through OpenRouter; switched to direct Anthropic because Google's OAuth verification team flagged OpenRouter's training-rights ToS as incompatible with the Workspace API Limited Use policy. Anthropic's commercial API does not train on customer inputs/outputs, which satisfies Limited Use.
 
 ### Sentry (error tracking)
 
@@ -585,7 +586,7 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] Vapi webhook handler with optional secret verification
 - [x] `tool-calls` dispatched to handlers and returned synchronously
 - [x] `end-of-call-report` upserts `calls` row, persists transcript + recording URL
-- [x] LLM call summarization via OpenRouter (intent, outcome, isEmergency, ownerLine) via tool calling
+- [x] LLM call summarization via Anthropic direct (intent, outcome, isEmergency, ownerLine) via tool calling
 - [x] Per-call SMS digest line to owner at end-of-call
 - [x] Missed-call text-back fired on `status-update: in-progress` (idempotent per Vapi call ID)
 
@@ -641,7 +642,7 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 
 ### Onboarding (self-serve)
 - [x] Public form at `/onboard` capturing all PRD §7 fields
-- [x] **AI-drafted KB from website URL** — owner pastes URL → server fetches → OpenRouter returns structured services / FAQs / brand voice → form pre-fills
+- [x] **AI-drafted KB from website URL** — owner pastes URL → server fetches → Anthropic returns structured services / FAQs / brand voice → form pre-fills
 - [x] Submission creates pending business + KB rows, then creates Stripe customer + Checkout session, redirects to Stripe
 - [x] `/onboard/setup/[id]` wait page with client-side polling, redirects to `/dashboard` when status flips to `live`
 - [x] Stripe webhook (`flow: "new_tenant"`) creates Supabase auth user via `inviteUserByEmail` (magic link), links `owner_user_id`, fires Inngest `tenant/provision-needed`
@@ -703,7 +704,7 @@ The first section is the **self-serve smoke test** — the primary flow new cust
 This validates that an unauthenticated visitor can go from `/onboard` to a working AI receptionist without any human intervention.
 
 **Prerequisites:**
-- All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Google Calendar + Stripe + OpenRouter + Inngest.
+- All env keys filled in `.env.local`: Supabase + DATABASE_URL + Vapi + Twilio + Google Calendar + Stripe + Anthropic + Inngest.
 - At least one of `STRIPE_PRICE_SOLO` ($79/mo) or `STRIPE_PRICE_BUSINESS` ($249/mo) set, or `STRIPE_PRICE_MRR` as a single-price fallback. `STRIPE_PRICE_SETUP` left empty (self-serve has no setup fee).
 - `TWILIO_MESSAGING_SERVICE_SID` set so new numbers auto-attach to your A2P 10DLC Campaign. (Skip if you're using demo mode below.)
 - Stripe webhook endpoint configured to point at `https://<your-tunnel>/api/webhooks/stripe`.

@@ -1,23 +1,16 @@
-import OpenAI from "openai";
-import { env, requireEnv } from "@/lib/env";
+import Anthropic from "@anthropic-ai/sdk";
+import { requireEnv } from "@/lib/env";
 import type { VapiTranscriptMessage } from "@/lib/voice/types";
 
-let cached: OpenAI | null = null;
+let cached: Anthropic | null = null;
 
-export function getLlm(): OpenAI {
+export function getLlm(): Anthropic {
   if (cached) return cached;
-  cached = new OpenAI({
-    apiKey: requireEnv("OPENROUTER_API_KEY"),
-    baseURL: "https://openrouter.ai/api/v1",
-    defaultHeaders: {
-      "HTTP-Referer": env.APP_URL,
-      "X-Title": "Copper",
-    },
-  });
+  cached = new Anthropic({ apiKey: requireEnv("ANTHROPIC_API_KEY") });
   return cached;
 }
 
-const SUMMARY_MODEL = "anthropic/claude-sonnet-4.5";
+const SUMMARY_MODEL = "claude-sonnet-4-6";
 
 export type CallSummary = {
   summary: string;
@@ -38,57 +31,53 @@ export type CallSummary = {
   ownerLine: string;
 };
 
-const SUMMARIZE_TOOL = {
-  type: "function" as const,
-  function: {
-    name: "record_call_summary",
-    description:
-      "Record a structured summary of a phone call between an AI receptionist and a customer.",
-    parameters: {
-      type: "object",
-      properties: {
-        summary: {
-          type: "string",
-          description:
-            "2–4 sentence summary of who called and what happened. Plain English.",
-        },
-        intent: {
-          type: "string",
-          enum: [
-            "emergency",
-            "service",
-            "quote",
-            "billing",
-            "existing_customer",
-            "other",
-          ],
-          description: "Primary reason the customer called.",
-        },
-        outcome: {
-          type: "string",
-          enum: [
-            "booked",
-            "callback_promised",
-            "no_booking",
-            "transferred",
-            "hung_up",
-          ],
-          description: "How the call resolved.",
-        },
-        isEmergency: {
-          type: "boolean",
-          description:
-            "True when the caller described an urgent, dangerous, or active-damage situation.",
-        },
-        ownerLine: {
-          type: "string",
-          description:
-            "A single short line (~120 chars) suitable for an SMS to the business owner.",
-        },
+const SUMMARIZE_TOOL: Anthropic.Tool = {
+  name: "record_call_summary",
+  description:
+    "Record a structured summary of a phone call between an AI receptionist and a customer.",
+  input_schema: {
+    type: "object",
+    properties: {
+      summary: {
+        type: "string",
+        description:
+          "2–4 sentence summary of who called and what happened. Plain English.",
       },
-      required: ["summary", "intent", "outcome", "isEmergency", "ownerLine"],
-      additionalProperties: false,
+      intent: {
+        type: "string",
+        enum: [
+          "emergency",
+          "service",
+          "quote",
+          "billing",
+          "existing_customer",
+          "other",
+        ],
+        description: "Primary reason the customer called.",
+      },
+      outcome: {
+        type: "string",
+        enum: [
+          "booked",
+          "callback_promised",
+          "no_booking",
+          "transferred",
+          "hung_up",
+        ],
+        description: "How the call resolved.",
+      },
+      isEmergency: {
+        type: "boolean",
+        description:
+          "True when the caller described an urgent, dangerous, or active-damage situation.",
+      },
+      ownerLine: {
+        type: "string",
+        description:
+          "A single short line (~120 chars) suitable for an SMS to the business owner.",
+      },
     },
+    required: ["summary", "intent", "outcome", "isEmergency", "ownerLine"],
   },
 };
 
@@ -106,14 +95,13 @@ export async function summarizeCall(
   const text =
     typeof transcript === "string" ? transcript : transcriptToText(transcript);
 
-  const response = await client.chat.completions.create({
+  const response = await client.messages.create({
     model: SUMMARY_MODEL,
-    max_tokens: 512,
+    max_tokens: 1024,
+    thinking: { type: "disabled" },
+    output_config: { effort: "low" },
     tools: [SUMMARIZE_TOOL],
-    tool_choice: {
-      type: "function",
-      function: { name: "record_call_summary" },
-    },
+    tool_choice: { type: "tool", name: "record_call_summary" },
     messages: [
       {
         role: "user",
@@ -122,9 +110,11 @@ export async function summarizeCall(
     ],
   });
 
-  const toolCall = response.choices[0]?.message.tool_calls?.[0];
-  if (!toolCall || toolCall.type !== "function") {
+  const toolUse = response.content.find(
+    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+  );
+  if (!toolUse) {
     throw new Error("LLM did not return a tool call.");
   }
-  return JSON.parse(toolCall.function.arguments) as CallSummary;
+  return toolUse.input as CallSummary;
 }

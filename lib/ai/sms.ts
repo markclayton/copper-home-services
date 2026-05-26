@@ -1,3 +1,4 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { getLlm } from "./llm";
 import type { Business, KnowledgeBase } from "@/lib/db/schema";
 
@@ -6,7 +7,7 @@ export type SmsHistoryMessage = {
   body: string;
 };
 
-const SMS_MODEL = "anthropic/claude-haiku-4.5";
+const SMS_MODEL = "claude-haiku-4-5";
 
 // Cap on conversation history sent to the LLM. SMS conversations rarely
 // run long; this keeps prompts cheap and focused on the recent exchange.
@@ -88,33 +89,29 @@ ${kb?.emergencyCriteria ? `What counts as an emergency for this business: ${kb.e
 ${kb?.afterHoursPolicy ? `After-hours policy: ${kb.afterHoursPolicy}` : ""}`;
 }
 
-const REPLY_TOOL = {
-  type: "function" as const,
-  function: {
-    name: "send_sms_reply",
-    description: "Send a text-message reply back to the customer.",
-    parameters: {
-      type: "object",
-      properties: {
-        body: {
-          type: "string",
-          description:
-            "The text to send. One to three sentences, ideally under 160 characters.",
-        },
-        flag_for_owner: {
-          type: "boolean",
-          description:
-            "True if the owner needs to follow up personally — urgent issues, callback requests, cancellations, or questions you couldn't answer confidently.",
-        },
-        flag_reason: {
-          type: "string",
-          description:
-            "If flag_for_owner is true, a one-sentence summary of what the owner needs to handle. Otherwise empty string.",
-        },
+const REPLY_TOOL: Anthropic.Tool = {
+  name: "send_sms_reply",
+  description: "Send a text-message reply back to the customer.",
+  input_schema: {
+    type: "object",
+    properties: {
+      body: {
+        type: "string",
+        description:
+          "The text to send. One to three sentences, ideally under 160 characters.",
       },
-      required: ["body", "flag_for_owner", "flag_reason"],
-      additionalProperties: false,
+      flag_for_owner: {
+        type: "boolean",
+        description:
+          "True if the owner needs to follow up personally — urgent issues, callback requests, cancellations, or questions you couldn't answer confidently.",
+      },
+      flag_reason: {
+        type: "string",
+        description:
+          "If flag_for_owner is true, a one-sentence summary of what the owner needs to handle. Otherwise empty string.",
+      },
     },
+    required: ["body", "flag_for_owner", "flag_reason"],
   },
 };
 
@@ -131,34 +128,38 @@ export async function generateSmsReply(args: {
   // is appended separately as the live turn.
   const trimmed = args.history.slice(-HISTORY_MAX_MESSAGES);
 
-  const conversation = trimmed.map((m) => ({
-    role: (m.direction === "inbound" ? "user" : "assistant") as
-      | "user"
-      | "assistant",
+  // Anthropic requires the first message to be `user`. If trimmed history
+  // happens to start with an outbound (assistant) message, drop the leading
+  // assistant turns so the prefix begins on a user turn.
+  let firstUserIdx = trimmed.findIndex((m) => m.direction === "inbound");
+  if (firstUserIdx === -1) firstUserIdx = trimmed.length;
+  const usable = trimmed.slice(firstUserIdx);
+
+  const conversation: Anthropic.MessageParam[] = usable.map((m) => ({
+    role: m.direction === "inbound" ? "user" : "assistant",
     content: m.body,
   }));
 
-  const response = await client.chat.completions.create({
+  const response = await client.messages.create({
     model: SMS_MODEL,
     max_tokens: REPLY_MAX_TOKENS,
+    system,
     tools: [REPLY_TOOL],
-    tool_choice: {
-      type: "function",
-      function: { name: "send_sms_reply" },
-    },
+    tool_choice: { type: "tool", name: "send_sms_reply" },
     messages: [
-      { role: "system", content: system },
       ...conversation,
       { role: "user", content: args.newMessage },
     ],
   });
 
-  const toolCall = response.choices[0]?.message.tool_calls?.[0];
-  if (!toolCall || toolCall.type !== "function") {
+  const toolUse = response.content.find(
+    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+  );
+  if (!toolUse) {
     throw new Error("SMS LLM did not return a tool call.");
   }
 
-  const parsed = JSON.parse(toolCall.function.arguments) as {
+  const parsed = toolUse.input as {
     body: string;
     flag_for_owner: boolean;
     flag_reason: string;

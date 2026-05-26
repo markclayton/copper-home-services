@@ -45,7 +45,7 @@ const envSchema = z.object({
   DEMO_TWILIO_NUMBER: z.string().min(1).optional(),
   DEMO_VAPI_PHONE_NUMBER_ID: z.string().min(1).optional(),
 
-  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
 
   // Calendar integration (Google now, Microsoft later). The client ID +
   // secret come from a GCP OAuth client with the Calendar API enabled. The

@@ -159,10 +159,6 @@ export default function PrivacyPage() {
           <strong>Vapi</strong> — orchestrates the voice session and synthesizes
           the AI&apos;s spoken replies (text-to-speech).
         </li>
-        <li>
-          <strong>OpenRouter</strong> — routes occasional summarization and
-          background language tasks to LLMs.
-        </li>
       </ul>
       <p>
         <strong>
@@ -250,14 +246,12 @@ export default function PrivacyPage() {
         <li>
           <strong>Anthropic</strong> — large language model for the AI
           receptionist (call turn-by-turn text and the business&apos;s
-          configured prompt; not Google Workspace data).
+          configured prompt) and for post-call transcript summarization. We
+          call Anthropic&apos;s API directly; Anthropic&apos;s commercial API
+          terms prohibit training on customer data.
         </li>
         <li>
           <strong>Deepgram</strong> — speech-to-text (call audio only).
-        </li>
-        <li>
-          <strong>OpenRouter</strong> — background summarization (call
-          transcripts; not Google Workspace data).
         </li>
         <li>
           <strong>Stripe</strong> — billing and payment processing.
