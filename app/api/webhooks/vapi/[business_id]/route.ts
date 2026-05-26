@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   businesses,
@@ -11,10 +11,8 @@ import {
 import { env } from "@/lib/env";
 import { summarizeCall } from "@/lib/ai/llm";
 import { handleToolCall, type ToolCtx } from "@/lib/voice/tool-handlers";
-import { sendSms } from "@/lib/telephony/twilio";
 import { inngest } from "@/lib/jobs/client";
 import type {
-  VapiCallSummary,
   VapiEndOfCallReport,
   VapiServerPayload,
   VapiStatusUpdate,
@@ -127,57 +125,6 @@ async function handleStatusUpdate(
     type: `vapi.status-update.${message.status}`,
     payload: message as unknown as Record<string, unknown>,
   });
-
-  if (message.status === "in-progress" || message.status === "in_progress") {
-    await maybeFireMissedCallTextback(business, message.call);
-  }
-}
-
-async function maybeFireMissedCallTextback(
-  business: Business,
-  call: VapiCallSummary,
-) {
-  const isInbound = call.type !== "outboundPhoneCall";
-  const customerPhone = call.customer?.number;
-  if (!isInbound || !customerPhone) return;
-
-  // Idempotency: only one text-back per vapi call id.
-  const eventType = "missed_call_textback.sent";
-  const existing = await db
-    .select({ id: events.id })
-    .from(events)
-    .where(
-      and(
-        eq(events.businessId, business.id),
-        eq(events.type, eventType),
-        sql`${events.payload}->>'vapiCallId' = ${call.id}`,
-      ),
-    )
-    .limit(1);
-  if (existing.length > 0) return;
-
-  await db.insert(events).values({
-    businessId: business.id,
-    type: eventType,
-    payload: { vapiCallId: call.id, to: customerPhone },
-  });
-
-  try {
-    await sendSms({
-      businessId: business.id,
-      to: customerPhone,
-      body: `Hey, this is ${business.name} — sorry we missed you. Our AI assistant just called you back, or reply here and we'll text you.`,
-    });
-  } catch (err) {
-    await db.insert(events).values({
-      businessId: business.id,
-      type: "missed_call_textback.failed",
-      payload: {
-        vapiCallId: call.id,
-        message: err instanceof Error ? err.message : String(err),
-      },
-    });
-  }
 }
 
 async function upsertContact(

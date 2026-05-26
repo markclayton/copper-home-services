@@ -839,7 +839,7 @@ export const respondToInboundSms = inngest.createFunction(
         await sendSms({
           businessId: data.businessId,
           to: business.ownerPhone,
-          body: `Text from ${data.fromNumber}: "${data.body.slice(0, 80)}" — AI flagged this for you. ${reply.flagReason}`,
+          body: `Text from ${data.fromNumber}: "${data.body.slice(0, 80)}" — AI flagged this for you.`,
         }).catch(() => {
           // Owner alert is best-effort; the event row above is the source of truth.
         });

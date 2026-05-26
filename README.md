@@ -107,7 +107,7 @@ Customer phone ─► Twilio number ─► Vapi assistant
                   tool-calls    end-of-call-report   status-update
                        │                │                 │
                        │                │                 ▼
-                       │                │         missed-call SMS
+                       │                │         logged to events
                        │                ▼
                        │     Anthropic summarize → calls row
                        ▼
@@ -480,13 +480,13 @@ Without registration, US carriers (T-Mobile, Verizon, AT&T) silently filter most
    - Sole Prop / low-volume Brand: ~$4, no vetting, lower throughput limits — fine for early stage.
 3. **Register a Campaign**:
    - Use Case: **Customer Care** (best fit for the AI receptionist; also acceptable: "Account Notifications").
-   - Description: *"AI receptionist sends customers appointment confirmations, missed-call text-backs, and review requests on behalf of small home services businesses. Owners receive per-call summaries and emergency alerts."*
-   - Provide all four sample messages — they should match the actual templates the system sends:
-     - *"Hey, this is {Business} — sorry we missed you. Our AI assistant just called you back, or reply here and we'll text you."*
+   - Description: *"AI receptionist sends customers appointment confirmations and review requests on behalf of small home services businesses. Owners receive per-call summaries and emergency alerts."*
+   - Provide sample messages — they should match the actual templates the system sends:
      - *"Confirmed — {service} on {date}. {Business} will text before arrival. Reply with questions."*
-     - *"EMERGENCY @ {Business}: {summary}. Caller {phone}. Address: {address}."*
-     - *"Today: {N} calls, {M} booked ({X}%), {E} emergencies, {R} reviews requested."*
-   - Opt-in mechanism: explain that customers initiate by calling the business number (the missed-call text-back is a reply-to-an-implicit-opt-in pattern). For web-form leads, the opt-in is the form submission.
+     - *"Thanks for choosing {Business}! If we did right by you, would you leave a quick Google review? {tracking_url}"*
+     - *"Quick reminder — if {Business} did right by you, would you mind leaving a Google review? {tracking_url}"*
+     - *"Text from {customer_phone}: \"{customer_message}\" — AI flagged this for you."*
+   - Opt-in mechanism: every consumer-facing SMS is the reply leg of an explicit opt-in. Voice path: AI captures verbal consent on the recorded call before booking (the consent moment is preserved in the transcript). SMS path: consumer initiates by texting the business number first. Web-form leads: opt-in is the form submission.
    - Opt-out: standard `STOP` keyword (handled by Twilio automatically).
 4. **Attach Twilio numbers to the Campaign**: every number you provision (`+13345649614`, plus future tenants) needs to be linked. New numbers must be attached *after* purchase — `provisionTenant` doesn't do this automatically. Do it from the Twilio Console under Messaging → Senders → Phone Numbers.
 5. **Wait for approval**: typically 1-3 business days for the Brand, another 1-2 days for the Campaign.
@@ -590,7 +590,6 @@ Optional but strongly recommended for production. When unconfigured, all Sentry 
 - [x] `end-of-call-report` upserts `calls` row, persists transcript + recording URL
 - [x] LLM call summarization via Anthropic direct (intent, outcome, isEmergency, ownerLine) via tool calling
 - [x] Per-call SMS digest line to owner at end-of-call
-- [x] Missed-call text-back fired on `status-update: in-progress` (idempotent per Vapi call ID)
 
 ### AI tools (called mid-call)
 - [x] `get_available_slots` → Google Calendar freeBusy + business-hours slot computation
@@ -761,11 +760,10 @@ If any step fails, the rest of the testing checklist below tests individual feat
 ### 3. Inbound voice
 - [ ] Call your tenant's Twilio number from a different phone
 - [ ] Vapi answers within 2 rings, plays the first message ("Hi! Thanks for calling …")
-- [ ] Within 30 s of pickup, the calling phone receives the missed-call text-back SMS
 - [ ] Hang up after a brief conversation
 - [ ] Within 30 s, owner phone receives a one-line SMS summary
 - [ ] **Calls** page shows the call; click it → transcript, recording playback, summary all render
-- [ ] `events` table shows `call.completed`, `missed_call_textback.sent`
+- [ ] `events` table shows `call.completed`
 
 ### 4. Booking flow (mid-call tool use)
 - [ ] Make a second call. Tell the AI: "I need an AC repair, can you check tomorrow morning?"

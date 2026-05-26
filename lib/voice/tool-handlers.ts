@@ -256,7 +256,7 @@ async function handleBookAppointment(
       businessId: ctx.business.id,
       contactId,
       to: customerPhone,
-      body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply STOP to opt out.`,
+      body: `Confirmed — ${serviceType} on ${friendlyTime}. ${ctx.business.name} will text before arrival. Reply with questions.`,
     }).catch(() => {
       // Customer SMS failure shouldn't fail the booking; the Inngest owner
       // notification will still fire so the owner sees the booking.
