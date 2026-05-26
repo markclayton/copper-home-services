@@ -1,7 +1,7 @@
 import twilio, { type Twilio } from "twilio";
-import { and, count, eq, gte, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { events, messages } from "@/lib/db/schema";
+import { contacts, events, messages } from "@/lib/db/schema";
 import { env, requireEnv } from "@/lib/env";
 
 let cached: Twilio | null = null;
@@ -35,6 +35,42 @@ export class SmsQuotaExceededError extends Error {
     );
     this.name = "SmsQuotaExceededError";
   }
+}
+
+/**
+ * Thrown when the recipient has previously replied STOP (or equivalent) to
+ * this business's number. Twilio's carriers also block the send at their
+ * layer, but we check up-front to avoid the failed-send billing and to keep
+ * the AI from drafting replies that will never reach the customer.
+ */
+export class ContactOptedOutError extends Error {
+  constructor(
+    public businessId: string,
+    public toNumber: string,
+  ) {
+    super(
+      `Contact ${toNumber} has opted out of SMS from business ${businessId}.`,
+    );
+    this.name = "ContactOptedOutError";
+  }
+}
+
+async function isOptedOut(
+  businessId: string,
+  toNumber: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      and(
+        eq(contacts.businessId, businessId),
+        eq(contacts.phone, toNumber),
+        isNotNull(contacts.optedOutAt),
+      ),
+    )
+    .limit(1);
+  return !!row;
 }
 
 type SendSmsArgs = {
@@ -81,6 +117,18 @@ export async function sendSms({
   sender = "ai",
   bypassQuota,
 }: SendSmsArgs) {
+  // Opt-out check runs even when bypassQuota is set — owner-targeted alerts
+  // never go to customer numbers, so an opt-out should still gate a send to
+  // a customer in any edge case where the wrong `to` is passed.
+  if (await isOptedOut(businessId, to)) {
+    await db.insert(events).values({
+      businessId,
+      type: "sms.suppressed_opted_out",
+      payload: { to },
+    });
+    throw new ContactOptedOutError(businessId, to);
+  }
+
   if (!bypassQuota) {
     const quota = await withinMonthlyQuota(businessId);
     if (!quota.ok) {
@@ -99,10 +147,18 @@ export async function sendSms({
     throw new Error("No Twilio from-number provided or configured.");
   }
 
+  // Pass `messagingServiceSid` alongside `from` so Twilio applies the A2P
+  // campaign's service-level features (Advanced Opt-Out, sticky sender,
+  // smart encoding). The `from` number must already be in the service's
+  // sender pool — provisionTenant attaches every newly-bought number via
+  // attachToMessagingService.
   const sent = await client.messages.create({
     to,
     from: fromNumber,
     body,
+    ...(env.TWILIO_MESSAGING_SERVICE_SID
+      ? { messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
+      : {}),
   });
 
   const [row] = await db

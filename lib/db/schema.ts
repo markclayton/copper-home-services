@@ -232,6 +232,7 @@ export const contacts = pgTable(
     source: contactSource(),
     tags: text().array(),
     aiPaused: boolean().notNull().default(false),
+    optedOutAt: timestamp({ withTimezone: true }),
     firstSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

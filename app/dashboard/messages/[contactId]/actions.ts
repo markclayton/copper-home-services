@@ -6,7 +6,11 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { contacts } from "@/lib/db/schema";
 import { requireBusiness } from "@/lib/db/queries";
-import { sendSms, SmsQuotaExceededError } from "@/lib/telephony/twilio";
+import {
+  ContactOptedOutError,
+  sendSms,
+  SmsQuotaExceededError,
+} from "@/lib/telephony/twilio";
 
 const replySchema = z.object({
   contactId: z.string().uuid(),
@@ -51,6 +55,13 @@ export async function sendOwnerReply(
       sender: "owner",
     });
   } catch (err) {
+    if (err instanceof ContactOptedOutError) {
+      return {
+        ok: false,
+        error:
+          "This contact replied STOP and is opted out of SMS. They have to text START to re-subscribe before you can message them again.",
+      };
+    }
     if (err instanceof SmsQuotaExceededError) {
       return {
         ok: false,

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import twilio from "twilio";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { businesses, contacts, messages } from "@/lib/db/schema";
+import { businesses, contacts, events, messages } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { inngest } from "@/lib/jobs/client";
 
@@ -21,22 +21,28 @@ function twimlResponse(status = 200) {
 // Carrier-handled keywords. Twilio auto-replies for STOP/UNSUBSCRIBE/CANCEL
 // (registering the opt-out at the carrier level) and HELP. We still
 // recognize them so the AI doesn't reply on top of the carrier message.
-const CARRIER_KEYWORDS = new Set([
+const STOP_KEYWORDS = new Set([
   "stop",
   "stopall",
   "unsubscribe",
   "end",
   "quit",
   "cancel",
-  "help",
-  "info",
-  "start",
-  "yes",
-  "unstop",
+]);
+const START_KEYWORDS = new Set(["start", "yes", "unstop"]);
+const INFO_KEYWORDS = new Set(["help", "info"]);
+const CARRIER_KEYWORDS = new Set([
+  ...STOP_KEYWORDS,
+  ...START_KEYWORDS,
+  ...INFO_KEYWORDS,
 ]);
 
+function normalizeKeyword(body: string): string {
+  return body.trim().toLowerCase();
+}
+
 function isCarrierKeyword(body: string): boolean {
-  return CARRIER_KEYWORDS.has(body.trim().toLowerCase());
+  return CARRIER_KEYWORDS.has(normalizeKeyword(body));
 }
 
 export async function POST(
@@ -94,6 +100,32 @@ export async function POST(
   }
 
   const contactId = await upsertContact(business.id, fromNumber);
+
+  // Mirror Twilio's carrier-level opt-out into our DB so sendSms can
+  // short-circuit before billing a failed send. STOP-class keywords set
+  // optedOutAt; START-class keywords clear it.
+  const keyword = normalizeKeyword(body);
+  if (STOP_KEYWORDS.has(keyword)) {
+    await db
+      .update(contacts)
+      .set({ optedOutAt: new Date() })
+      .where(eq(contacts.id, contactId));
+    await db.insert(events).values({
+      businessId: business.id,
+      type: "sms.opted_out",
+      payload: { contactId, fromNumber, keyword },
+    });
+  } else if (START_KEYWORDS.has(keyword)) {
+    await db
+      .update(contacts)
+      .set({ optedOutAt: null })
+      .where(eq(contacts.id, contactId));
+    await db.insert(events).values({
+      businessId: business.id,
+      type: "sms.opted_in",
+      payload: { contactId, fromNumber, keyword },
+    });
+  }
 
   const [inserted] = await db
     .insert(messages)
