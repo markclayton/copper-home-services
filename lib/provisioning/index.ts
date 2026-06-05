@@ -5,6 +5,8 @@
  *   1. Buy a Twilio local number (skip if business.twilioNumber already set)
  *   2. Attach the number to the A2P 10DLC Messaging Service for SMS
  *   3. Register that number with Vapi (skip if vapiPhoneNumberId set)
+ *   3.5. Re-assert our SMS webhook on the Twilio number — Vapi's registration
+ *        clobbers smsUrl to its own SMS-chat endpoint, but we own SMS.
  *   4. Deploy/update the Vapi assistant (always run; cheap, keeps prompt fresh)
  *   5. Create a Stripe customer (idempotent, soft-fail if not configured)
  *   6. Link the phone number to the assistant
@@ -20,7 +22,11 @@ import { db } from "@/lib/db";
 import { businesses, events } from "@/lib/db/schema";
 import { env, requireEnv } from "@/lib/env";
 import { extractUsAreaCode } from "@/lib/format";
-import { attachToMessagingService, buyLocalNumber } from "./twilio";
+import {
+  attachToMessagingService,
+  buyLocalNumber,
+  refreshNumberWebhooks,
+} from "./twilio";
 import {
   registerPhoneNumber,
   updatePhoneNumber,
@@ -209,6 +215,21 @@ export async function provisionTenant(
         status: "ok",
         detail: registered.id,
       });
+
+      // Vapi's phone-number registration overwrites the Twilio SMS webhook to
+      // its own SMS-chat endpoint. We don't use Vapi for SMS (A2P routing +
+      // opt-out gate + escalation flagging all live in our own webhook), so
+      // re-assert our smsUrl. Voice URL is left alone — Vapi owns voice.
+      if (twilioPhoneSid) {
+        try {
+          await refreshNumberWebhooks({ businessId, twilioSid: twilioPhoneSid });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          await logProvisionEvent(businessId, "provision.sms_webhook_refresh.failed", {
+            message,
+          });
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       steps.push({
