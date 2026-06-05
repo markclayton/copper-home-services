@@ -510,23 +510,35 @@ function FeatureBlocks() {
           bullets={[
             "Answers on the first ring, 24/7",
             "Pick your AI's voice — six options",
-            "Routes emergencies to your cell immediately",
+            "If it's an emergency, your phone rings immediately",
           ]}
           visual={<AnswerVisual />}
         />
         <FeatureRow
           reverse
           eyebrow="Book"
-          headline="Fills your calendar without you lifting a finger."
-          body="Connected to your Google Calendar. Copper checks real availability, books the slot, and confirms with the customer over text — all before they hang up."
+          headline="Books appointments straight into your calendar."
+          body="Connected to your Google Calendar. Copper checks real availability, books the slot, and confirms with the customer over text — all before they hang up. No callback promises, no double-bookings."
           bullets={[
-            "Real calendar — not a callback promise",
+            "Real calendar booking — not a callback promise",
             "Customer gets a confirmation SMS instantly",
             "Owner gets a booking alert with caller details",
           ]}
           visual={<BookVisual />}
         />
         <FeatureRow
+          eyebrow="Text"
+          headline="Replies to texts like a teammate who never sleeps."
+          body="When customers text your business line, your AI replies in seconds — answering questions, scheduling callbacks, and pinging your cell the moment something's urgent."
+          bullets={[
+            "Answers FAQs from your own playbook, not a generic script",
+            "Flags urgent texts to your phone the moment they come in",
+            "Customer sees the same name and number on every reply",
+          ]}
+          visual={<TextVisual />}
+        />
+        <FeatureRow
+          reverse
           eyebrow="Follow up"
           headline="Turns happy customers into Google reviews."
           body="Two hours after every completed job, Copper texts a friendly review request with a one-tap link. One nudge 48 hours later if they haven't replied. That's it — no spam."
@@ -718,6 +730,44 @@ function BookVisual() {
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function TextVisual() {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-ink/15 bg-cream-50 overflow-hidden shadow-[0_24px_50px_-30px_rgba(26,24,21,0.3)]">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-ink/10 bg-cream-200">
+          <MessageSquare size={14} className="text-copper-600" />
+          <span className="font-mono text-xs text-ink-700">
+            SMS · Tonight 7:42pm
+          </span>
+        </div>
+        <div className="p-5 space-y-3">
+          <TranscriptBubble
+            who="Customer"
+            text="Water is leaking out from under my kitchen sink and it's getting worse"
+          />
+          <TranscriptBubble
+            who="Copper"
+            ai
+            text="That sounds urgent — I'm alerting the owner now. Someone will call you back within 15 minutes."
+          />
+        </div>
+      </div>
+      <div className="rounded-xl border border-copper-500 bg-copper-50 p-4 shadow-[0_24px_50px_-30px_rgba(26,24,21,0.3)] flex items-start gap-3">
+        <Zap size={18} className="text-copper-700 shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wider text-copper-700 font-mono mb-1">
+            Owner alert · sent to your cell
+          </div>
+          <div className="text-[14px] text-ink leading-snug">
+            Urgent: active leak at 412 Pine St. Sarah M · (619) 555&#x2011;2841.
+            Reply to call back.
+          </div>
+        </div>
       </div>
     </div>
   );
