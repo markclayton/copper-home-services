@@ -1,7 +1,7 @@
 import twilio, { type Twilio } from "twilio";
 import { and, count, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { contacts, events, messages } from "@/lib/db/schema";
+import { businesses, contacts, events, messages } from "@/lib/db/schema";
 import { env, requireEnv } from "@/lib/env";
 
 let cached: Twilio | null = null;
@@ -142,9 +142,23 @@ export async function sendSms({
   }
 
   const client = getTwilioClient();
-  const fromNumber = from ?? env.TWILIO_DEFAULT_FROM_NUMBER;
+  // Resolution order:
+  //   1. Explicit `from` from the caller (rare — owner replies, scripts)
+  //   2. The tenant's own provisioned number (the common case)
+  //   3. TWILIO_DEFAULT_FROM_NUMBER (legacy single-tenant fallback)
+  let fromNumber = from;
   if (!fromNumber) {
-    throw new Error("No Twilio from-number provided or configured.");
+    const [biz] = await db
+      .select({ twilioNumber: businesses.twilioNumber })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    fromNumber = biz?.twilioNumber ?? env.TWILIO_DEFAULT_FROM_NUMBER;
+  }
+  if (!fromNumber) {
+    throw new Error(
+      `No Twilio from-number resolved for business ${businessId}: tenant has no twilioNumber and TWILIO_DEFAULT_FROM_NUMBER is unset.`,
+    );
   }
 
   // Pass `messagingServiceSid` alongside `from` so Twilio applies the A2P
