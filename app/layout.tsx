@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
+import { PostHogProvider } from "@/components/posthog-provider";
 import "./globals.css";
 
 // metadataBase is the absolute origin OG/Twitter image URLs resolve against.
@@ -76,6 +78,9 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <Suspense fallback={null}>
+            <PostHogProvider />
+          </Suspense>
           {children}
         </ThemeProvider>
       </body>

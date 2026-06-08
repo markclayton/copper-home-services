@@ -75,6 +75,9 @@ const envSchema = z.object({
   SENTRY_ORG: z.string().min(1).optional(),
   SENTRY_PROJECT: z.string().min(1).optional(),
   SENTRY_AUTH_TOKEN: z.string().min(1).optional(),
+
+  NEXT_PUBLIC_POSTHOG_KEY: z.string().min(1).optional(),
+  NEXT_PUBLIC_POSTHOG_HOST: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
