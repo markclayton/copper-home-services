@@ -30,14 +30,25 @@ import {
   requireBusiness,
 } from "@/lib/db/queries";
 import { formatPhone, formatRelative, formatTime } from "@/lib/format";
+import { getUsageSnapshot } from "@/lib/billing/usage";
+import { type PlanTier } from "@/lib/billing/plans";
+
+const TIER_LABEL: Record<PlanTier, string> = {
+  default: "Solo",
+  solo: "Solo",
+  business: "Business",
+  custom: "Custom",
+};
 
 export default async function TodayPage() {
   const { business } = await requireBusiness();
-  const [metrics, todayCalls, upcoming, todayTexts] = await Promise.all([
+  const tier = business.planTier as PlanTier;
+  const [metrics, todayCalls, upcoming, todayTexts, usage] = await Promise.all([
     getTodayMetrics(business),
     getTodayCalls(business, 6),
     listUpcomingAppointments(business.id, 5),
     getTodayConversations(business, 5),
+    getUsageSnapshot(business.id, tier),
   ]);
 
   return (
@@ -60,6 +71,13 @@ export default async function TodayPage() {
       {business.twilioNumber && (
         <PhoneNumberCard phone={business.twilioNumber} />
       )}
+
+      <UsageStrip
+        tier={tier}
+        minutesUsed={usage.minutesUsed}
+        minuteCap={usage.minuteCap}
+        pctUsed={usage.pctUsed}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard
@@ -269,6 +287,69 @@ export default async function TodayPage() {
   );
 }
 
+
+function UsageStrip({
+  tier,
+  minutesUsed,
+  minuteCap,
+  pctUsed,
+}: {
+  tier: PlanTier;
+  minutesUsed: number;
+  minuteCap: number | null;
+  pctUsed: number | null;
+}) {
+  const planLabel = TIER_LABEL[tier];
+  const clamped = pctUsed === null ? 0 : Math.min(1, Math.max(0, pctUsed));
+  const widthPct = Math.round(clamped * 100);
+  const tone =
+    clamped >= 1
+      ? "bg-red-500"
+      : clamped >= 0.8
+        ? "bg-amber-500"
+        : "bg-emerald-500";
+
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-5">
+        <div className="flex items-baseline justify-between gap-3 mb-2">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground">
+              Voice minutes
+            </span>
+            <span className="text-sm font-medium truncate">
+              {minuteCap === null
+                ? `${minutesUsed} used (no cap)`
+                : `${minutesUsed} of ${minuteCap}`}
+            </span>
+          </div>
+          <Link
+            href="/dashboard/billing"
+            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 shrink-0"
+          >
+            {planLabel} <ArrowRight size={12} />
+          </Link>
+        </div>
+        {minuteCap !== null && (
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full ${tone}`}
+              style={{ width: `${widthPct}%` }}
+              aria-label={`${minutesUsed} of ${minuteCap} minutes used`}
+            />
+          </div>
+        )}
+        {pctUsed !== null && pctUsed >= 0.8 && (
+          <p className="text-xs text-muted-foreground mt-2">
+            {pctUsed >= 1
+              ? "You've hit your monthly cap. Calls keep going through — upgrade to Business for more headroom."
+              : "Approaching your monthly cap. Upgrade to Business for more headroom."}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function MetricCard({
   title,
