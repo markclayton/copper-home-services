@@ -10,6 +10,7 @@ import {
   loadDraftSession,
   pathAfterSavingStep,
 } from "@/lib/onboarding/draft-business";
+import { trackOnboardingStepCompleted } from "@/lib/observability/events";
 
 const hoursDay = z.object({
   open: z.string(),
@@ -38,7 +39,7 @@ export async function saveHoursStep(
   _prev: HoursStepState,
   form: FormData,
 ): Promise<HoursStepState> {
-  const { business } = await loadDraftSession();
+  const { business, userId } = await loadDraftSession();
 
   const parsed = schema.safeParse({
     hours: form.get("hours"),
@@ -76,6 +77,12 @@ export async function saveHoursStep(
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
+
+  await trackOnboardingStepCompleted({
+    userId,
+    businessId: business.id,
+    step: "hours",
+  });
 
   redirect(redirectPath);
 }

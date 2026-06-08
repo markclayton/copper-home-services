@@ -10,6 +10,7 @@ import {
   loadDraftSession,
   pathAfterSavingStep,
 } from "@/lib/onboarding/draft-business";
+import { trackOnboardingStepCompleted } from "@/lib/observability/events";
 import { DEFAULT_VOICE_ID, isValidVoiceId } from "@/lib/voice/voices";
 
 const schema = z.object({
@@ -25,7 +26,7 @@ export async function saveVoiceStep(
   _prev: VoiceStepState,
   form: FormData,
 ): Promise<VoiceStepState> {
-  const { business } = await loadDraftSession();
+  const { business, userId } = await loadDraftSession();
 
   const parsed = schema.safeParse({
     voiceId: form.get("voiceId"),
@@ -65,6 +66,12 @@ export async function saveVoiceStep(
   // happen after Stripe checkout completes (see activateNewTenant in the
   // Stripe webhook). Keeps us from spending money on numbers for users who
   // never finish paying.
+
+  await trackOnboardingStepCompleted({
+    userId,
+    businessId: business.id,
+    step: "voice",
+  });
 
   redirect(redirectPath);
 }

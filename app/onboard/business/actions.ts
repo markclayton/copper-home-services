@@ -11,6 +11,7 @@ import {
   loadDraftSession,
   pathAfterSavingStep,
 } from "@/lib/onboarding/draft-business";
+import { trackOnboardingStepCompleted } from "@/lib/observability/events";
 
 const schema = z.object({
   name: z.string().min(1, "Business name is required"),
@@ -38,7 +39,7 @@ export async function saveBusinessStep(
   _prev: BusinessStepState,
   form: FormData,
 ): Promise<BusinessStepState> {
-  const { business, email } = await loadDraftSession();
+  const { business, email, userId } = await loadDraftSession();
 
   const parsed = schema.safeParse({
     name: form.get("name"),
@@ -67,6 +68,12 @@ export async function saveBusinessStep(
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
+
+  await trackOnboardingStepCompleted({
+    userId,
+    businessId: business.id,
+    step: "business",
+  });
 
   redirect(redirectPath);
 }

@@ -7,6 +7,10 @@ import { env } from "@/lib/env";
 import { getStripe } from "@/lib/billing/stripe";
 import { tierFromStripeMetadata } from "@/lib/billing/plans";
 import {
+  trackSubscriptionActivated,
+  trackSubscriptionCanceled,
+} from "@/lib/observability/events";
+import {
   ACTIVE_STRIPE_STATUSES,
   PROBLEM_STRIPE_STATUSES,
   teardownDateFromNow,
@@ -139,6 +143,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (flow === "new_tenant") {
     await activateNewTenant(businessId);
   }
+
+  const [biz] = await db
+    .select({ ownerUserId: businesses.ownerUserId })
+    .from(businesses)
+    .where(eq(businesses.id, businessId))
+    .limit(1);
+  await trackSubscriptionActivated({
+    userId: biz?.ownerUserId ?? null,
+    businessId,
+    plan: session.metadata?.plan ?? null,
+  });
 }
 
 /**
@@ -276,6 +291,11 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
       subscriptionId: sub.id,
       scheduledTeardownAt: teardownAt.toISOString(),
     },
+  });
+
+  await trackSubscriptionCanceled({
+    userId: business.ownerUserId,
+    businessId: business.id,
   });
 }
 

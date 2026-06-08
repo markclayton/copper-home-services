@@ -37,6 +37,7 @@ import {
   renderEmergency,
 } from "@/lib/notifications/templates";
 import { recordWebhookEvent } from "@/lib/db/webhook-idempotency";
+import { trackOnboardingCompleted } from "@/lib/observability/events";
 
 /**
  * Post-job review request: end_at + 2h → tracked SMS → 48h wait → nudge if
@@ -363,6 +364,18 @@ export const tenantProvisioning = inngest.createFunction(
         type: "tenant.live",
         payload: { steps: result.steps, trigger: "provisioning.succeeded" },
       });
+
+      const [biz] = await db
+        .select({ ownerUserId: businesses.ownerUserId })
+        .from(businesses)
+        .where(eq(businesses.id, businessId))
+        .limit(1);
+      if (biz?.ownerUserId) {
+        await trackOnboardingCompleted({
+          userId: biz.ownerUserId,
+          businessId,
+        });
+      }
     });
 
     return { ok: true, businessId };

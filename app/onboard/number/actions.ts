@@ -10,6 +10,7 @@ import {
   loadDraftSession,
   pathAfterSavingStep,
 } from "@/lib/onboarding/draft-business";
+import { trackOnboardingStepCompleted } from "@/lib/observability/events";
 
 const schema = z.object({
   phoneNumber: z
@@ -23,7 +24,7 @@ export async function saveNumberStep(
   _prev: NumberStepState,
   form: FormData,
 ): Promise<NumberStepState> {
-  const { business } = await loadDraftSession();
+  const { business, userId } = await loadDraftSession();
 
   const parsed = schema.safeParse({
     phoneNumber: form.get("phoneNumber"),
@@ -45,6 +46,12 @@ export async function saveNumberStep(
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
+
+  await trackOnboardingStepCompleted({
+    userId,
+    businessId: business.id,
+    step: "number",
+  });
 
   redirect(redirectPath);
 }

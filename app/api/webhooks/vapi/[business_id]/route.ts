@@ -20,6 +20,10 @@ import {
 import { sendSms } from "@/lib/telephony/twilio";
 import { sendEmail, isEmailConfigured } from "@/lib/notifications/email";
 import { renderUsageAlert } from "@/lib/notifications/templates";
+import {
+  trackCallCompleted,
+  trackUsageWarningFired,
+} from "@/lib/observability/events";
 import type {
   VapiEndOfCallReport,
   VapiServerPayload,
@@ -282,6 +286,15 @@ async function handleEndOfCallReport(
     },
   });
 
+  await trackCallCompleted({
+    userId: business.ownerUserId,
+    businessId: business.id,
+    durationSec,
+    intent,
+    outcome,
+    isEmergency,
+  });
+
   if (durationSec && durationSec > 0) {
     await checkVoiceUsageAlerts(business, durationSec);
   }
@@ -348,5 +361,14 @@ async function checkVoiceUsageAlerts(business: Business, durationSec: number) {
     businessId: business.id,
     type: `usage.${threshold}`,
     payload: { minutesUsed: nextMinutes, minuteCap: cap, tier },
+  });
+
+  await trackUsageWarningFired({
+    userId: business.ownerUserId,
+    businessId: business.id,
+    threshold,
+    minutesUsed: nextMinutes,
+    minuteCap: cap,
+    tier,
   });
 }

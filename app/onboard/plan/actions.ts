@@ -11,6 +11,7 @@ import {
   type SelfServePlan,
 } from "@/lib/billing/stripe";
 import { isSelfServePlan, readPlanCookie } from "@/lib/onboarding/plan-cookie";
+import { trackOnboardingStepCompleted } from "@/lib/observability/events";
 
 export type PlanStepState = { ok: boolean; error?: string };
 
@@ -18,7 +19,7 @@ export async function startSubscription(
   _prev: PlanStepState,
   form: FormData,
 ): Promise<PlanStepState> {
-  const { business } = await loadDraftSession();
+  const { business, userId } = await loadDraftSession();
 
   // Create Stripe customer if missing (idempotent guard for re-tries).
   let stripeCustomerId = business.stripeCustomerId;
@@ -68,6 +69,12 @@ export async function startSubscription(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+
+  await trackOnboardingStepCompleted({
+    userId,
+    businessId: business.id,
+    step: "plan",
+  });
 
   redirect(url);
 }

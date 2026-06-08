@@ -10,6 +10,7 @@ import {
   loadDraftSession,
   pathAfterSavingStep,
 } from "@/lib/onboarding/draft-business";
+import { trackOnboardingStepCompleted } from "@/lib/observability/events";
 
 const saveSchema = z.object({
   services: z.string(),
@@ -31,7 +32,7 @@ export async function saveServicesStep(
   _prev: ServicesStepState,
   form: FormData,
 ): Promise<ServicesStepState> {
-  const { business } = await loadDraftSession();
+  const { business, userId } = await loadDraftSession();
 
   const parsed = saveSchema.safeParse({
     services: form.get("services"),
@@ -75,6 +76,12 @@ export async function saveServicesStep(
     })
     .where(eq(businesses.id, business.id));
 
+  await trackOnboardingStepCompleted({
+    userId,
+    businessId: business.id,
+    step: "services",
+  });
+
   redirect(redirectPath);
 }
 
@@ -85,7 +92,7 @@ export async function saveServicesStep(
  * back here later.
  */
 export async function skipServicesStep(): Promise<void> {
-  const { business } = await loadDraftSession();
+  const { business, userId } = await loadDraftSession();
   const redirectPath = pathAfterSavingStep(business, "services");
 
   await db
@@ -95,6 +102,12 @@ export async function skipServicesStep(): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
+
+  await trackOnboardingStepCompleted({
+    userId,
+    businessId: business.id,
+    step: "services",
+  });
 
   redirect(redirectPath);
 }

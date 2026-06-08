@@ -17,6 +17,7 @@ import {
 import { sendSms } from "@/lib/telephony/twilio";
 import { createBooking, getFreeSlots } from "@/lib/booking/google";
 import { inngest } from "@/lib/jobs/client";
+import { trackAppointmentBooked } from "@/lib/observability/events";
 import type { VapiToolCall, VapiToolResult } from "./types";
 
 export type ToolCtx = {
@@ -240,6 +241,14 @@ async function handleBookAppointment(
       contactId,
       endAt: new Date(booking.endISO).toISOString(),
     },
+  });
+
+  await trackAppointmentBooked({
+    userId: ctx.business.ownerUserId,
+    businessId: ctx.business.id,
+    appointmentId: appt.id,
+    serviceType,
+    source: "ai",
   });
 
   const friendlyTime = formatBookingTime(
