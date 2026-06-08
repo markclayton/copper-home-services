@@ -786,22 +786,11 @@ function ReviewVisual() {
           <span className="text-copper-600 underline">copper.li/r/x9k2</span>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { stat: "82%", label: "open rate" },
-          { stat: "31%", label: "review rate" },
-          { stat: "5★", label: "average" },
-        ].map((m) => (
-          <div
-            key={m.label}
-            className="border border-ink/15 bg-cream-50 rounded-md p-4"
-          >
-            <div className="font-display text-2xl text-copper-600 leading-none">
-              {m.stat}
-            </div>
-            <div className="text-xs text-ink-500 mt-1.5">{m.label}</div>
-          </div>
-        ))}
+      <div className="rounded-md border border-ink/15 bg-cream-50 p-4 flex items-start gap-3">
+        <Star size={16} className="text-copper-600 shrink-0 mt-0.5 fill-copper-600" />
+        <div className="text-sm text-ink-700 leading-snug">
+          Tracked link straight to your Google profile. One reminder 48 hours later if they haven&apos;t replied. Then we stop.
+        </div>
       </div>
     </div>
   );
@@ -814,7 +803,7 @@ function HowItWorks() {
     {
       n: "01",
       title: "Tell us about your business",
-      body: "Five-minute setup. Hours, services, prices, the works. Paste your website URL and we draft most of it for you.",
+      body: "A guided wizard walks you through hours, services, pricing, and the FAQs you hear most. Ten to fifteen minutes and your AI knows your business.",
     },
     {
       n: "02",
@@ -913,9 +902,9 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
         "When the phone rings a hundred times a month and you've got more than one truck on the road.",
       features: [
         "Everything in Solo",
+        "Up to 2,000 voice minutes/month",
         "Built for higher call volume",
         "Priority email support",
-        "Multi-user dashboard access",
       ],
       cta: {
         href: businessHref,
@@ -929,11 +918,11 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
       price: "Let's talk",
       tagline: "For multi-location & integrations.",
       description:
-        "Custom integrations (FieldEdge, ServiceTitan, Housecall Pro), multi-location routing, and hands-on setup for larger teams.",
+        "Multi-location teams and shops with CRM or dispatch software they want the AI to talk to. We scope and build it with you.",
       features: [
         "Everything in Business",
-        "Custom integrations",
-        "Multi-location routing",
+        "Unlimited voice minutes",
+        "Custom integration scoping",
         "Hands-on onboarding & training",
       ],
       cta: { href: "/contact-sales", label: "Contact us" },
@@ -977,8 +966,7 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
         </div>
 
         <p className="text-center text-xs text-ink-500 mt-8">
-          Carrier fees for SMS and outbound calls billed at cost. Typically
-          under $20/month for a busy shop.
+          All carrier and AI costs included. The price you see is the price you pay.
         </p>
       </div>
     </section>
