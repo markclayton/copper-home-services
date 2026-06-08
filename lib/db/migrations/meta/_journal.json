@@ -99,6 +99,13 @@
       "when": 1780396800000,
       "tag": "0013_contact_opted_out",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780483200000,
+      "tag": "0014_plan_tier_solo_business",
+      "breakpoints": true
     }
   ]
 }

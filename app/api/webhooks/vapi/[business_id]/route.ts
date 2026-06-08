@@ -12,6 +12,14 @@ import { env } from "@/lib/env";
 import { summarizeCall } from "@/lib/ai/llm";
 import { handleToolCall, type ToolCtx } from "@/lib/voice/tool-handlers";
 import { inngest } from "@/lib/jobs/client";
+import { getMinuteCap, type PlanTier } from "@/lib/billing/plans";
+import {
+  crossedThreshold,
+  getMinutesUsedThisCycle,
+} from "@/lib/billing/usage";
+import { sendSms } from "@/lib/telephony/twilio";
+import { sendEmail, isEmailConfigured } from "@/lib/notifications/email";
+import { renderUsageAlert } from "@/lib/notifications/templates";
 import type {
   VapiEndOfCallReport,
   VapiServerPayload,
@@ -272,5 +280,73 @@ async function handleEndOfCallReport(
       ownerLine,
       isEmergency,
     },
+  });
+
+  if (durationSec && durationSec > 0) {
+    await checkVoiceUsageAlerts(business, durationSec);
+  }
+}
+
+/**
+ * Fire an owner alert the first time this billing cycle crosses 80% or
+ * 100% of the tier's monthly voice-minute cap. getMinutesUsedThisCycle
+ * already includes the just-finished call (it's in the DB by this point),
+ * so we subtract its duration to compute the "before this call" total
+ * and detect the exact threshold crossing.
+ */
+async function checkVoiceUsageAlerts(business: Business, durationSec: number) {
+  const tier = business.planTier as PlanTier;
+  const cap = getMinuteCap(tier);
+  if (!cap) return;
+
+  const nextMinutes = await getMinutesUsedThisCycle(business.id);
+  const prevMinutes = Math.max(0, nextMinutes - Math.round(durationSec / 60));
+  const threshold = crossedThreshold(prevMinutes, nextMinutes, cap);
+  if (!threshold) return;
+
+  const message = renderUsageAlert({
+    businessName: business.name,
+    minutesUsed: nextMinutes,
+    minuteCap: cap,
+    threshold,
+  });
+
+  if (business.ownerPhone) {
+    try {
+      await sendSms({
+        businessId: business.id,
+        to: business.ownerPhone,
+        body: message.sms,
+        bypassQuota: true,
+      });
+    } catch (err) {
+      await db.insert(events).values({
+        businessId: business.id,
+        type: "notify.usage_alert.sms.failed",
+        payload: { message: err instanceof Error ? err.message : String(err) },
+      });
+    }
+  }
+
+  if (business.ownerEmail && isEmailConfigured()) {
+    const sent = await sendEmail({
+      to: business.ownerEmail,
+      subject: message.emailSubject,
+      html: message.emailHtml,
+      text: message.emailText,
+    });
+    if (!sent.ok) {
+      await db.insert(events).values({
+        businessId: business.id,
+        type: "notify.usage_alert.email.failed",
+        payload: { reason: sent.reason },
+      });
+    }
+  }
+
+  await db.insert(events).values({
+    businessId: business.id,
+    type: `usage.${threshold}`,
+    payload: { minutesUsed: nextMinutes, minuteCap: cap, tier },
   });
 }

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { businesses, events } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { getStripe } from "@/lib/billing/stripe";
+import { tierFromStripeMetadata } from "@/lib/billing/plans";
 import {
   ACTIVE_STRIPE_STATUSES,
   PROBLEM_STRIPE_STATUSES,
@@ -116,6 +117,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       ? session.customer
       : session.customer?.id ?? null;
   const flow = session.metadata?.flow as string | undefined;
+  const planTier = tierFromStripeMetadata(session.metadata?.plan);
 
   await db
     .update(businesses)
@@ -123,6 +125,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscriptionId,
       setupFeePaidAt: new Date(),
+      planTier,
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, businessId));
@@ -197,12 +200,18 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
     updatedAt: Date;
     status?: "live" | "paused";
     scheduledTeardownAt?: Date | null;
+    planTier?: ReturnType<typeof tierFromStripeMetadata>;
   };
   const update: StatusUpdate = {
     stripeSubscriptionId: sub.id,
     stripeSubscriptionStatus: sub.status,
     updatedAt: new Date(),
   };
+
+  const metaPlan = sub.metadata?.plan;
+  if (metaPlan) {
+    update.planTier = tierFromStripeMetadata(metaPlan);
+  }
 
   if (ACTIVE_STRIPE_STATUSES.has(sub.status)) {
     // Reactivation path: was paused → going live again. Clear any pending

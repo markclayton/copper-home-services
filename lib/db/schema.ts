@@ -19,7 +19,12 @@ export const businessStatus = pgEnum("business_status", [
   "paused",
 ]);
 
-export const planTier = pgEnum("plan_tier", ["default"]);
+export const planTier = pgEnum("plan_tier", [
+  "default",
+  "solo",
+  "business",
+  "custom",
+]);
 
 export const onboardingStep = pgEnum("onboarding_step", [
   "business",

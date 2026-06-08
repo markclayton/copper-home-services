@@ -896,7 +896,7 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
       features: [
         "Dedicated AI receptionist",
         "Local phone number included",
-        "Unlimited inbound calls",
+        "Up to 500 voice minutes/month",
         "Google Calendar booking",
         "Automated review requests",
         "SMS + email owner alerts",
@@ -953,7 +953,7 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
             Built so the solo can afford it. Built so the shop can scale on it.
           </h2>
           <p className="text-ink-700 mt-3">
-            No setup fee. No per-minute charges. Cancel anytime.
+            No setup fee. Cancel anytime.
           </p>
         </Reveal>
 

@@ -165,6 +165,49 @@ export function renderEmergency(n: EmergencyNotice): RenderedMessage {
   return { sms, emailSubject, emailHtml: html, emailText: text };
 }
 
+export type UsageAlertNotice = {
+  businessName: string;
+  minutesUsed: number;
+  minuteCap: number;
+  threshold: "warning" | "exceeded";
+};
+
+export function renderUsageAlert(n: UsageAlertNotice): RenderedMessage {
+  const billingUrl = `${env.APP_URL}/dashboard/billing`;
+  const isExceeded = n.threshold === "exceeded";
+
+  const sms = isExceeded
+    ? `Heads up — ${n.businessName} hit its monthly voice-minute cap on Copper Solo (${n.minutesUsed}/${n.minuteCap}). Calls are still going through. Upgrade to Business for higher capacity: ${billingUrl}`
+    : `${n.businessName} is at ${n.minutesUsed}/${n.minuteCap} voice minutes for the month on Copper Solo. You may hit the cap soon — upgrade to Business if you want headroom: ${billingUrl}`;
+
+  const emailSubject = isExceeded
+    ? `You've hit your monthly voice-minute cap — Copper`
+    : `Heads up: 80% of your monthly voice minutes used — Copper`;
+
+  const headline = isExceeded
+    ? "You've hit your monthly cap."
+    : "You're at 80% of your monthly cap.";
+  const body = isExceeded
+    ? `Calls are still being answered — we don't cut you off mid-month. But Solo is sized for ${n.minuteCap} voice minutes a month, and you've already used ${n.minutesUsed}. If this pace keeps up, Business is the right tier.`
+    : `Solo includes ${n.minuteCap} voice minutes a month and you've used ${n.minutesUsed}. You might hit the cap before the cycle resets. Business gives you ~4x the headroom.`;
+
+  const html = shell(
+    `<h1 style="margin:0 0 8px 0;font-size:20px;font-weight:600">${headline}</h1>
+    <p style="margin:0;color:#475569;font-size:14px;line-height:1.5">${escape(body)}</p>`,
+    { ctaUrl: billingUrl, ctaLabel: "Upgrade to Business" },
+  );
+
+  const text = [
+    headline,
+    "",
+    body,
+    "",
+    `Manage your plan: ${billingUrl}`,
+  ].join("\n");
+
+  return { sms, emailSubject, emailHtml: html, emailText: text };
+}
+
 export function renderCallSummary(n: CallSummaryNotice): RenderedMessage {
   const url = dashboardCallUrl(n.callId);
   const phoneFmt = formatPhone(n.customerPhone);
