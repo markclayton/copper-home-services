@@ -40,7 +40,7 @@ import {
 import { CopperLogo } from "@/components/copper-logo";
 import { Reveal, RevealGroup, RevealItem } from "@/components/landing/reveal";
 
-const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
+export const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 export function LandingPage({ isAuthed }: { isAuthed: boolean }) {
   return (
@@ -61,7 +61,7 @@ export function LandingPage({ isAuthed }: { isAuthed: boolean }) {
 
 /* ─── Header ──────────────────────────────────────────────────────────── */
 
-function SiteHeader({ isAuthed }: { isAuthed: boolean }) {
+export function SiteHeader({ isAuthed }: { isAuthed: boolean }) {
   return (
     <header className="border-b border-ink/10 bg-cream-100/90 backdrop-blur sticky top-0 z-50">
       <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
@@ -185,13 +185,43 @@ function Hero({ isAuthed }: { isAuthed: boolean }) {
   );
 }
 
+export type HeroCallContent = {
+  callerName: string;
+  callerPhone: string;
+  transcript: [
+    { who: string; text: string },
+    { who: string; text: string; ai?: boolean },
+    { who: string; text: string },
+  ];
+  bookingLabel: string;
+  smsToCaller: string;
+};
+
+const DEFAULT_HERO_CALL: HeroCallContent = {
+  callerName: "Sarah Mitchell",
+  callerPhone: "(415) 555-0142",
+  transcript: [
+    { who: "Sarah", text: "Hi, my kitchen sink is backed up. Can someone come out today?" },
+    { who: "Copper AI", text: "Sounds like a clog. I can get you in at 2pm or 4pm today — what works?", ai: true },
+    { who: "Sarah", text: "2pm works." },
+  ],
+  bookingLabel: "Drain cleaning · Today, 2:00 PM",
+  smsToCaller:
+    "Confirmed — drain cleaning today at 2:00 PM. We'll text 15 min before arrival.",
+};
+
 /**
  * Hero call card: scales/fades in, ticking timer, transcript reveals
  * sequentially as if the call is unfolding, status flips On Call → Booked
  * once the transcript completes. This is the one place the page "tells a
  * story" via motion — everything else is restrained reveal.
+ *
+ * `content` is what the call says — defaults to the plumbing example used
+ * on the main landing, but per-vertical pages pass their own.
  */
-function HeroCallCard() {
+export function HeroCallCard({
+  content = DEFAULT_HERO_CALL,
+}: { content?: HeroCallContent } = {}) {
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.4 });
@@ -279,10 +309,10 @@ function HeroCallCard() {
                 Caller
               </div>
               <div className="font-display text-2xl leading-tight">
-                Sarah Mitchell
+                {content.callerName}
               </div>
               <div className="font-mono text-sm text-ink-500 mt-0.5">
-                (415) 555-0142
+                {content.callerPhone}
               </div>
             </div>
             <div className="text-right">
@@ -320,19 +350,19 @@ function HeroCallCard() {
 
           <div className="space-y-2 pt-2 border-t border-ink/10 min-h-[120px]">
             <TranscriptLine
-              who="Sarah"
-              text="Hi, my kitchen sink is backed up. Can someone come out today?"
+              who={content.transcript[0].who}
+              text={content.transcript[0].text}
               visible={visibleLines >= 1}
             />
             <TranscriptLine
-              who="Copper AI"
-              text="Sounds like a clog. I can get you in at 2pm or 4pm today — what works?"
+              who={content.transcript[1].who}
+              text={content.transcript[1].text}
               ai
               visible={visibleLines >= 2}
             />
             <TranscriptLine
-              who="Sarah"
-              text="2pm works."
+              who={content.transcript[2].who}
+              text={content.transcript[2].text}
               visible={visibleLines >= 3}
             />
           </div>
@@ -352,7 +382,7 @@ function HeroCallCard() {
                 Booked appointment
               </div>
               <div className="text-sm font-medium text-ink">
-                Drain cleaning · Today, 2:00 PM
+                {content.bookingLabel}
               </div>
             </div>
             <Calendar size={20} className="text-copper-600" />
@@ -371,18 +401,17 @@ function HeroCallCard() {
         transition={{ duration: 0.7, ease: EASE, delay: 0.15 }}
       >
         <div className="text-[10px] uppercase tracking-wider text-ink-500 font-mono mb-2">
-          SMS to Sarah · Just now
+          SMS to caller · Just now
         </div>
         <div className="text-sm text-ink leading-snug">
-          Confirmed — drain cleaning today at 2:00 PM. We&apos;ll text 15 min
-          before arrival.
+          {content.smsToCaller}
         </div>
       </motion.div>
     </motion.div>
   );
 }
 
-function TranscriptLine({
+export function TranscriptLine({
   who,
   text,
   ai,
@@ -459,7 +488,7 @@ function IndustryStrip() {
 
 /* ─── Problem stats ───────────────────────────────────────────────────── */
 
-function ProblemStats() {
+export function ProblemStats() {
   const stats = [
     {
       number: "1 in 3",
@@ -508,7 +537,7 @@ function ProblemStats() {
 
 /* ─── Feature blocks ──────────────────────────────────────────────────── */
 
-function FeatureBlocks() {
+export function FeatureBlocks() {
   return (
     <section id="features" className="border-b border-ink/10 bg-cream-200">
       <div className="mx-auto max-w-6xl px-6 py-20 md:py-28 space-y-20 md:space-y-32">
@@ -807,7 +836,7 @@ function ReviewVisual() {
 
 /* ─── How it works ────────────────────────────────────────────────────── */
 
-function HowItWorks() {
+export function HowItWorks() {
   const steps = [
     {
       n: "01",
@@ -878,7 +907,7 @@ type PricingTier = {
   highlighted?: boolean;
 };
 
-function Pricing({ isAuthed }: { isAuthed: boolean }) {
+export function Pricing({ isAuthed }: { isAuthed: boolean }) {
   const soloHref = isAuthed ? "/dashboard" : "/onboard/start?plan=solo";
   const businessHref = isAuthed ? "/dashboard" : "/onboard/start?plan=business";
 
@@ -1111,7 +1140,7 @@ function Faq() {
 
 /* ─── Final CTA ───────────────────────────────────────────────────────── */
 
-function FinalCta({ isAuthed }: { isAuthed: boolean }) {
+export function FinalCta({ isAuthed }: { isAuthed: boolean }) {
   const reduced = useReducedMotion();
   return (
     <section className="relative border-b border-ink/10 bg-ink text-cream-100 overflow-hidden">
@@ -1199,10 +1228,10 @@ function FinalCta({ isAuthed }: { isAuthed: boolean }) {
 
 /* ─── Footer ──────────────────────────────────────────────────────────── */
 
-function SiteFooter() {
+export function SiteFooter() {
   return (
     <footer className="bg-cream-100">
-      <div className="mx-auto max-w-6xl px-6 py-14 grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+      <div className="mx-auto max-w-6xl px-6 py-14 grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <CopperLogo className="h-9 w-auto" />
@@ -1216,10 +1245,23 @@ function SiteFooter() {
         <FooterCol
           title="Product"
           links={[
-            { label: "Features", href: "#features" },
-            { label: "How it works", href: "#how" },
-            { label: "Pricing", href: "#pricing" },
+            { label: "Features", href: "/#features" },
+            { label: "How it works", href: "/#how" },
+            { label: "Pricing", href: "/#pricing" },
             { label: "Sign in", href: "/auth/login" },
+          ]}
+        />
+        <FooterCol
+          title="By industry"
+          links={[
+            { label: "HVAC", href: "/for/hvac" },
+            { label: "Plumbing", href: "/for/plumbing" },
+            { label: "Electrical", href: "/for/electrical" },
+            { label: "Roofing", href: "/for/roofing" },
+            { label: "Auto repair", href: "/for/auto-repair" },
+            { label: "Salons & spas", href: "/for/salons" },
+            { label: "Dental & medical", href: "/for/dental" },
+            { label: "Legal", href: "/for/legal" },
           ]}
         />
         <FooterCol
@@ -1277,7 +1319,7 @@ function FooterCol({
 
 /* ─── Shared CTA button (motion micro-interaction) ───────────────────── */
 
-function CTAButton({
+export function CTAButton({
   href,
   label,
   prominent,
