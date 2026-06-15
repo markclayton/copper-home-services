@@ -1,12 +1,13 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { businesses } from "@/lib/db/schema";
+import { businesses, knowledgeBase } from "@/lib/db/schema";
 import { normalizeUsPhone } from "@/lib/format";
 import { INDUSTRY_VALUES } from "@/lib/industry";
+import { getStarterPack } from "@/lib/industry-starter-packs";
 import {
   advanceStepIfAt,
   loadDraftSession,
@@ -74,6 +75,31 @@ export async function saveBusinessStep(
       updatedAt: new Date(),
     })
     .where(eq(businesses.id, business.id));
+
+  // Industry-aware starter content: drop sensible services/FAQs/scripts
+  // into the KB so the wizard isn't an empty form. The isNull guards keep
+  // returning users (and existing live tenants) from getting clobbered if
+  // they come back through step 1 — only a virgin KB gets pre-filled.
+  const pack = getStarterPack(parsed.data.industry);
+  await db
+    .update(knowledgeBase)
+    .set({
+      services: pack.services,
+      faqs: pack.faqs,
+      emergencyCriteria: pack.emergencyCriteria,
+      voicemailScript: pack.voicemailScript,
+      afterHoursPolicy: pack.afterHoursPolicy,
+      quoteCallbackWindow: pack.quoteCallbackWindow,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(knowledgeBase.businessId, business.id),
+        isNull(knowledgeBase.services),
+        isNull(knowledgeBase.faqs),
+        isNull(knowledgeBase.emergencyCriteria),
+      ),
+    );
 
   await trackOnboardingStepCompleted({
     userId,
