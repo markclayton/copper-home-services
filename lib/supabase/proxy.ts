@@ -53,10 +53,12 @@ export async function updateSession(request: NextRequest) {
     path === "/privacy" ||
     path === "/terms" ||
     path === "/contact" ||
+    path === "/contact-sales" ||
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
     path.startsWith("/api/") ||
     path.startsWith("/r/") ||
+    path.startsWith("/for/") ||
     path.startsWith("/account-pending");
 
   if (!user && !isPublic) {
