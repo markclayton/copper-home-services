@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getLlm } from "./llm";
 import type { Business, KnowledgeBase } from "@/lib/db/schema";
+import { industryDescriptor } from "@/lib/industry";
 
 export type SmsHistoryMessage = {
   direction: "inbound" | "outbound";
@@ -48,11 +49,11 @@ function buildSystemPrompt(
     ? JSON.stringify(kb.faqs, null, 0).slice(0, 1200)
     : "(no FAQs)";
 
-  return `You are the SMS assistant for ${business.name}, a home services business. You're texting a customer back on the business's main number.
+  return `You are the SMS assistant for ${business.name}, a ${industryDescriptor(business.industry)}. You're texting a customer back on the business's main number.
 
 # How to write
 - Keep replies short — one to three sentences max, ideally under 160 characters.
-- Sound like a friendly receptionist who knows the trades, not a chatbot. No emoji unless the customer used one first.
+- Sound like a friendly receptionist who knows the business, not a chatbot. No emoji unless the customer used one first.
 - Don't say "I'm an AI" or "I'm a virtual assistant" unless directly asked.
 - Don't open every reply with a greeting — this is a conversation, not a first contact.
 - Never invent prices, hours, or policies that aren't below.

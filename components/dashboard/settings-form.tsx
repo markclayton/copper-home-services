@@ -30,6 +30,7 @@ import {
   type NotifyChannels,
   type NotifyEvent,
 } from "@/lib/db/schema";
+import { industriesByCategory } from "@/lib/industry";
 
 const INITIAL: SaveSettingsState = { ok: false };
 
@@ -136,6 +137,7 @@ export function SettingsForm({
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <FormField label="Business name" name="name" defaultValue={business.name} required />
+          <IndustryField defaultValue={business.industry ?? ""} />
           <FormField label="Time zone" name="timezone" defaultValue={business.timezone} required />
           <FormField label="Owner name" name="ownerName" defaultValue={business.ownerName} required />
           <FormField label="Owner email" name="ownerEmail" type="email" defaultValue={business.ownerEmail} required />
@@ -353,6 +355,34 @@ function FormField({
         required={required}
         placeholder={placeholder}
       />
+    </div>
+  );
+}
+
+function IndustryField({ defaultValue }: { defaultValue: string }) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor="industry">Industry</Label>
+      <select
+        id="industry"
+        name="industry"
+        defaultValue={defaultValue}
+        required
+        className="rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <option value="" disabled>
+          Pick the closest match…
+        </option>
+        {industriesByCategory().map((group) => (
+          <optgroup key={group.category} label={group.label}>
+            {group.options.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
     </div>
   );
 }

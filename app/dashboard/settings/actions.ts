@@ -12,6 +12,7 @@ import {
   type NotifyChannels,
 } from "@/lib/db/schema";
 import { requireBusiness } from "@/lib/db/queries";
+import { INDUSTRY_VALUES } from "@/lib/industry";
 import { deployAssistant } from "@/lib/voice/deploy";
 import { DEFAULT_VOICE_ID, isValidVoiceId } from "@/lib/voice/voices";
 
@@ -34,6 +35,7 @@ const hoursSchema = z.object({
 const settingsSchema = z.object({
   // business
   name: z.string().min(1),
+  industry: z.enum(INDUSTRY_VALUES, { message: "Pick an industry" }),
   ownerName: z.string().min(1),
   ownerEmail: z.string().email(),
   ownerPhone: z.string().min(7),
@@ -132,6 +134,7 @@ export async function saveSettings(
 
   const businessUpdate: Partial<NewBusiness> = {
     name: v.name,
+    industry: v.industry,
     ownerName: v.ownerName,
     ownerEmail: v.ownerEmail,
     ownerPhone: v.ownerPhone,

@@ -50,9 +50,14 @@ export default function TermsPage() {
       <h2>Acceptable use</h2>
       <p>
         Don&apos;t use Copper to spam, deceive, harass, or break the law.
-        Don&apos;t use Copper for industries that aren&apos;t home services
-        without checking with us first. Don&apos;t reverse-engineer the
-        service or attempt to access another customer&apos;s data.
+        Copper is built for small businesses — currently home services,
+        auto repair, salons and spas, dental and medical practices, and
+        legal or professional services. If your business doesn&apos;t fit
+        one of these, email{" "}
+        <a href="mailto:support@joincopper.io">support@joincopper.io</a>{" "}
+        before setting up so we can confirm it&apos;s a fit. Don&apos;t
+        reverse-engineer the service or attempt to access another
+        customer&apos;s data.
       </p>
 
       <h2>SMS messaging program</h2>

@@ -10,6 +10,7 @@ import {
 } from "@/app/onboard/business/actions";
 import type { Business } from "@/lib/db/schema";
 import { formatPhone, isValidUsPhone } from "@/lib/format";
+import { industriesByCategory } from "@/lib/industry";
 
 const INITIAL: BusinessStepState = { ok: false };
 
@@ -62,6 +63,34 @@ export function BusinessStepForm({ business }: { business: Business }) {
             required
             autoFocus
           />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="industry">What kind of business?</Label>
+          <select
+            id="industry"
+            name="industry"
+            defaultValue={business.industry ?? ""}
+            required
+            className="rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="" disabled>
+              Pick the closest match…
+            </option>
+            {industriesByCategory().map((group) => (
+              <optgroup key={group.category} label={group.label}>
+                {group.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Helps your AI receptionist sound like it works at your shop.
+            You can change this later in Settings.
+          </p>
         </div>
 
         <div className="grid gap-2">

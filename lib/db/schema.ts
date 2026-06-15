@@ -112,6 +112,24 @@ export const calendarProvider = pgEnum("calendar_provider", [
   "microsoft",
 ]);
 
+export const industry = pgEnum("industry", [
+  "hvac",
+  "plumbing",
+  "electrical",
+  "roofing",
+  "pest_control",
+  "landscaping",
+  "cleaning",
+  "garage_doors",
+  "handyman",
+  "other_home_services",
+  "auto_repair",
+  "salon_spa",
+  "dental_medical",
+  "legal_professional",
+  "other",
+]);
+
 const businessOwnerCheck = sql`exists (select 1 from public.businesses b where b.id = business_id and b.owner_user_id = (select auth.uid()))`;
 
 export type NotifyEvent = "appointment" | "emergency" | "callSummary";
@@ -172,6 +190,7 @@ export const businesses = pgTable(
     status: businessStatus().notNull().default("pending"),
     onboardingStep: onboardingStep().notNull().default("business"),
     planTier: planTier().notNull().default("default"),
+    industry: industry(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

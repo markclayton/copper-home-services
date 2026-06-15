@@ -1,4 +1,5 @@
 import type { Business, KnowledgeBase } from "@/lib/db/schema";
+import { industryDescriptor } from "@/lib/industry";
 
 type Service = {
   name: string;
@@ -67,7 +68,7 @@ export function renderAssistantPrompt(
   business: Business,
   kb: KnowledgeBase,
 ): string {
-  const businessSummary = `${business.name} — owner-operated home services business based in timezone ${business.timezone}.`;
+  const businessSummary = `${business.name} — owner-operated ${industryDescriptor(business.industry)} based in timezone ${business.timezone}.`;
 
   return `You are ${business.name}'s AI receptionist.
 

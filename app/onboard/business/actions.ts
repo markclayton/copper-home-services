@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { businesses } from "@/lib/db/schema";
 import { normalizeUsPhone } from "@/lib/format";
+import { INDUSTRY_VALUES } from "@/lib/industry";
 import {
   advanceStepIfAt,
   loadDraftSession,
@@ -15,6 +16,9 @@ import { trackOnboardingStepCompleted } from "@/lib/observability/events";
 
 const schema = z.object({
   name: z.string().min(1, "Business name is required"),
+  industry: z.enum(INDUSTRY_VALUES, {
+    message: "Pick the industry that fits best",
+  }),
   ownerName: z.string().min(1, "Your name is required"),
   ownerPhone: z
     .string()
@@ -43,6 +47,7 @@ export async function saveBusinessStep(
 
   const parsed = schema.safeParse({
     name: form.get("name"),
+    industry: form.get("industry"),
     ownerName: form.get("ownerName"),
     ownerPhone: form.get("ownerPhone"),
     timezone: form.get("timezone"),
@@ -60,6 +65,7 @@ export async function saveBusinessStep(
     .update(businesses)
     .set({
       name: parsed.data.name,
+      industry: parsed.data.industry,
       ownerName: parsed.data.ownerName,
       ownerEmail: email,
       ownerPhone: parsed.data.ownerPhone,
