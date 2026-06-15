@@ -66,7 +66,7 @@ export function VoiceStepForm({
             name="emergencyCriteria"
             rows={3}
             defaultValue={kb?.emergencyCriteria ?? ""}
-            placeholder="No heat in winter, gas smell, water leak, electrical sparking, frozen pipes."
+            placeholder="Gas smell, leak, sparking, no-show emergencies — whatever's urgent for your business."
             className="rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
           <p className="text-xs text-muted-foreground">
@@ -83,7 +83,7 @@ export function VoiceStepForm({
             name="voicemailScript"
             rows={2}
             defaultValue={kb?.voicemailScript ?? ""}
-            placeholder="You've reached Acme HVAC. Please leave your name, address, and the issue."
+            placeholder="You've reached Acme. Please leave your name and the reason for your call, and we'll get back to you."
             className="rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>

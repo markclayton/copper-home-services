@@ -23,13 +23,17 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
+  Briefcase,
   Calendar,
+  Car,
   Check,
   CheckCircle2,
-  Hammer,
   MessageSquare,
   Phone,
+  Plus,
+  Scissors,
   Star,
+  Stethoscope,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -146,8 +150,8 @@ function Hero({ isAuthed }: { isAuthed: boolean }) {
             {...slide(0.35)}
           >
             Copper picks up every call, books the job, and texts the customer
-            back — so you can stay on the truck. Live in under an hour. No
-            setup fee.
+            back — so you can stay focused on the work. Live in under an hour.
+            No setup fee.
           </motion.p>
           <motion.div
             className="flex flex-wrap items-center gap-3 mt-2"
@@ -413,12 +417,11 @@ function TranscriptLine({
 
 function IndustryStrip() {
   const items = [
-    { icon: Wrench, label: "Plumbing" },
-    { icon: Zap, label: "Electrical" },
-    { icon: Hammer, label: "HVAC" },
-    { icon: Wrench, label: "Garage door" },
-    { icon: Hammer, label: "Roofing" },
-    { icon: Zap, label: "Pest control" },
+    { icon: Wrench, label: "Home services" },
+    { icon: Car, label: "Auto repair" },
+    { icon: Scissors, label: "Salons & spas" },
+    { icon: Stethoscope, label: "Dental & medical" },
+    { icon: Briefcase, label: "Legal & professional" },
   ];
   return (
     <section className="border-b border-ink/10 bg-cream-200">
@@ -426,7 +429,7 @@ function IndustryStrip() {
         <Reveal>
           <div className="flex flex-col md:flex-row md:items-center gap-6 md:gap-12">
             <div className="text-xs uppercase tracking-[0.18em] text-ink-500 font-medium shrink-0">
-              Built for the trades
+              Built for small business owners
             </div>
             <RevealGroup
               className="flex flex-wrap gap-x-8 gap-y-3 text-ink-700"
@@ -440,6 +443,12 @@ function IndustryStrip() {
                   </div>
                 </RevealItem>
               ))}
+              <RevealItem>
+                <div className="flex items-center gap-2 text-sm text-ink-500 italic">
+                  <Plus size={14} className="text-copper-600" />
+                  More on the way
+                </div>
+              </RevealItem>
             </RevealGroup>
           </div>
         </Reveal>
@@ -470,9 +479,9 @@ function ProblemStats() {
             Every missed call is a job you handed your competitor.
           </h2>
           <p className="text-ink-700 mt-4 text-lg leading-relaxed">
-            You can&apos;t answer the phone with your hands on a wrench. The
-            old fix was hiring an in-house receptionist or an answering
-            service. Both are slow, expensive, and miss the moment.
+            You can&apos;t answer the phone with your hands full. The old fix
+            was hiring an in-house receptionist or an answering service. Both
+            are slow, expensive, and miss the moment.
           </p>
         </Reveal>
         <RevealGroup
@@ -879,9 +888,9 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
       name: "Solo",
       price: "$79",
       cadence: "/month",
-      tagline: "For one-truck operations.",
+      tagline: "For one-person shops.",
       description:
-        "Lawn care, handyman, solo trades. Built so the price doesn't hurt when it's just you and the phone.",
+        "Solo operators across home services, salons, auto, and more. Built so the price doesn't hurt when it's just you and the phone.",
       features: [
         "Dedicated AI receptionist",
         "Local phone number included",
@@ -899,7 +908,7 @@ function Pricing({ isAuthed }: { isAuthed: boolean }) {
       cadence: "/month",
       tagline: "For 2-10 person shops.",
       description:
-        "When the phone rings a hundred times a month and you've got more than one truck on the road.",
+        "When the phone rings a hundred times a month and one person can't catch them all.",
       features: [
         "Everything in Solo",
         "Up to 2,000 voice minutes/month",
@@ -1039,7 +1048,7 @@ function Faq() {
   const items: { q: string; a: React.ReactNode }[] = [
     {
       q: "Can I keep my existing phone number?",
-      a: "Yes. Most owners forward their existing number to the Copper number we give you. Calls still ring to Copper — your number stays printed on the truck.",
+      a: "Yes. Most owners forward their existing number to the Copper number we give you. Calls still ring to Copper — your number stays printed on your signage, cards, and website.",
     },
     {
       q: "What happens if the AI doesn't know an answer?",
@@ -1200,7 +1209,7 @@ function SiteFooter() {
             <span className="font-display text-xl tracking-tight">Copper</span>
           </div>
           <p className="text-sm text-ink-500 max-w-xs leading-relaxed">
-            AI receptionist for owner-operated home services. Built in
+            AI receptionist for owner-operated small businesses. Built in
             Texas.
           </p>
         </div>

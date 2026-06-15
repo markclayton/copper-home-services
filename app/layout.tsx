@@ -17,9 +17,9 @@ const defaultUrl = process.env.NEXT_PUBLIC_APP_URL
       ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3000";
 
-const title = "Copper · AI receptionist for home services";
+const title = "Copper · AI receptionist for small businesses";
 const description =
-  "Copper picks up every call, books the job, and texts the customer back — so owner-operators can stay on the truck. Built for HVAC, plumbing, and electrical.";
+  "Copper picks up every call, books the job, and texts the customer back — so owner-operators can stay focused on the work. Built for home services, auto, salons, dental, legal, and more.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),

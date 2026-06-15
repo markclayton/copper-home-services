@@ -59,7 +59,7 @@ export function BusinessStepForm({ business }: { business: Business }) {
             id="name"
             name="name"
             defaultValue={business.name ?? ""}
-            placeholder="Acme HVAC"
+            placeholder="Acme &amp; Co."
             required
             autoFocus
           />

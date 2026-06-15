@@ -12,6 +12,6 @@ export { default } from "./opengraph-image";
 export const runtime = "edge";
 
 export const alt =
-  "Copper · AI receptionist for HVAC, plumbing, and electrical service businesses";
+  "Copper · AI receptionist for small business owners — home services, auto, salons, dental, legal, and more";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

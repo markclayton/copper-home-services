@@ -12,7 +12,7 @@ import { ImageResponse } from "next/og";
 export const runtime = "edge";
 
 export const alt =
-  "Copper · AI receptionist for HVAC, plumbing, and electrical service businesses";
+  "Copper · AI receptionist for small business owners — home services, auto, salons, dental, legal, and more";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -70,7 +70,7 @@ export default async function Image() {
               maxWidth: "960px",
             }}
           >
-            The AI receptionist for owner-operated home services.
+            The AI receptionist for small business owners.
           </div>
           <div
             style={{
@@ -81,7 +81,7 @@ export default async function Image() {
             }}
           >
             Answers every call, books the job, texts the customer back — so
-            you can stay on the truck.
+            you can stay focused on the work.
           </div>
         </div>
 
@@ -96,7 +96,7 @@ export default async function Image() {
             textTransform: "uppercase",
           }}
         >
-          <span>HVAC · Plumbing · Electrical</span>
+          <span>Home services · Auto · Salons · Dental · Legal · + more</span>
           <span style={{ color: COPPER, fontWeight: 600 }}>joincopper.io</span>
         </div>
       </div>

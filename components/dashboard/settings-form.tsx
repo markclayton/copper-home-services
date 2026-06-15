@@ -249,7 +249,7 @@ export function SettingsForm({
             label="Emergency criteria"
             name="emergencyCriteria"
             defaultValue={kb?.emergencyCriteria ?? ""}
-            placeholder="No heat in winter, gas smell, water leak, electrical sparking."
+            placeholder="Gas smell, leak, sparking, no-show emergencies — whatever's urgent for your business."
             rows={3}
           />
           <TextareaField
