@@ -147,6 +147,7 @@ export function advanceStepIfAt(
 
 const STEP_ORDER: Business["onboardingStep"][] = [
   "business",
+  "website",
   "services",
   "hours",
   "voice",

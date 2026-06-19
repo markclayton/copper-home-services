@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 const STEPS = [
   { slug: "business", label: "Business" },
+  { slug: "website", label: "Website" },
   { slug: "services", label: "Services" },
   { slug: "hours", label: "Hours" },
   { slug: "voice", label: "Voice" },

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -10,6 +11,7 @@ import {
   timestamp,
   unique,
   uuid,
+  vector,
 } from "drizzle-orm/pg-core";
 import { authUsers, authenticatedRole } from "drizzle-orm/supabase";
 
@@ -28,6 +30,7 @@ export const planTier = pgEnum("plan_tier", [
 
 export const onboardingStep = pgEnum("onboarding_step", [
   "business",
+  "website",
   "services",
   "hours",
   "voice",
@@ -116,6 +119,28 @@ export const ownerMessageStatus = pgEnum("owner_message_status", [
   "new",
   "acknowledged",
   "resolved",
+]);
+
+export const kbDocumentSource = pgEnum("kb_document_source", [
+  "upload",
+  "crawl",
+  "manual",
+]);
+
+export const kbDocumentStatus = pgEnum("kb_document_status", [
+  "queued",
+  "processing",
+  "ready",
+  "failed",
+]);
+
+export const kbCrawlStatus = pgEnum("kb_crawl_status", [
+  "queued",
+  "discovering",
+  "fetching",
+  "embedding",
+  "ready",
+  "failed",
 ]);
 
 export const industry = pgEnum("industry", [
@@ -513,6 +538,107 @@ export const appointmentChangeVerifications = pgTable(
   },
 ).enableRLS();
 
+/**
+ * RAG-side knowledge: uploaded documents and crawled website pages. Each
+ * row is one "source" — its text gets chunked into kb_chunks and embedded.
+ * The structured knowledge_base table is unchanged and still the
+ * deterministic facts layer the prompt is built from.
+ */
+export const kbDocuments = pgTable(
+  "kb_documents",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    businessId: uuid()
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    /** Set when this row was produced as part of a crawl. NULL for direct
+     *  uploads / manual entries. Not a FK to keep deletes simple — orphaned
+     *  documents survive a crawl-job purge. */
+    crawlJobId: uuid(),
+    sourceType: kbDocumentSource().notNull(),
+    title: text().notNull(),
+    sourceUrl: text(),
+    /** SHA-256 hex of the parsed text. Dedupes re-uploads via a partial
+     *  unique index on (business_id, content_hash). */
+    contentHash: text(),
+    status: kbDocumentStatus().notNull().default("queued"),
+    error: text(),
+    tokenCount: integer().notNull().default(0),
+    chunkCount: integer().notNull().default(0),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    pgPolicy("owners_select_own_kb_documents", {
+      for: "select",
+      to: authenticatedRole,
+      using: businessOwnerCheck,
+    }),
+  ],
+).enableRLS();
+
+/**
+ * Embedded text chunks. Each chunk belongs to a kb_documents row, and is
+ * the unit of semantic retrieval. Vector(1536) matches OpenAI
+ * text-embedding-3-small output dimensionality. The HNSW index lives in
+ * the migration — Drizzle's index DSL doesn't expose hnsw yet so we use
+ * the index() helper here just to declare it; the actual `USING hnsw` is
+ * the migration's job.
+ *
+ * No RLS policies — chunks are tool-only, read/written by server code with
+ * the service role.
+ */
+export const kbChunks = pgTable(
+  "kb_chunks",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    businessId: uuid()
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    documentId: uuid()
+      .notNull()
+      .references(() => kbDocuments.id, { onDelete: "cascade" }),
+    chunkIndex: integer().notNull(),
+    content: text().notNull(),
+    embedding: vector({ dimensions: 1536 }).notNull(),
+    tokenCount: integer().notNull().default(0),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("kb_chunks_business_idx").on(t.businessId),
+  ],
+).enableRLS();
+
+/**
+ * Tracks a per-tenant crawl from kickoff to completion so the onboarding
+ * UI can poll progress. Owners can see their own row but the crawler
+ * writes via service role.
+ */
+export const kbCrawlJobs = pgTable(
+  "kb_crawl_jobs",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    businessId: uuid()
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    rootUrl: text().notNull(),
+    status: kbCrawlStatus().notNull().default("queued"),
+    pagesTotal: integer(),
+    pagesScraped: integer().notNull().default(0),
+    error: text(),
+    startedAt: timestamp({ withTimezone: true }),
+    completedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    pgPolicy("owners_select_own_kb_crawl_jobs", {
+      for: "select",
+      to: authenticatedRole,
+      using: businessOwnerCheck,
+    }),
+  ],
+).enableRLS();
+
 export type Business = typeof businesses.$inferSelect;
 export type NewBusiness = typeof businesses.$inferInsert;
 export type KnowledgeBase = typeof knowledgeBase.$inferSelect;
@@ -528,3 +654,9 @@ export type OwnerMessage = typeof ownerMessages.$inferSelect;
 export type NewOwnerMessage = typeof ownerMessages.$inferInsert;
 export type AppointmentChangeVerification =
   typeof appointmentChangeVerifications.$inferSelect;
+export type KbDocument = typeof kbDocuments.$inferSelect;
+export type NewKbDocument = typeof kbDocuments.$inferInsert;
+export type KbChunk = typeof kbChunks.$inferSelect;
+export type NewKbChunk = typeof kbChunks.$inferInsert;
+export type KbCrawlJob = typeof kbCrawlJobs.$inferSelect;
+export type NewKbCrawlJob = typeof kbCrawlJobs.$inferInsert;

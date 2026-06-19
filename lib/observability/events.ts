@@ -20,6 +20,7 @@ type BaseProps = {
 
 type OnboardingStep =
   | "business"
+  | "website"
   | "services"
   | "hours"
   | "voice"

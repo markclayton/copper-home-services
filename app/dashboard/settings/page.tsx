@@ -1,10 +1,11 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { knowledgeBase } from "@/lib/db/schema";
+import { kbDocuments, knowledgeBase } from "@/lib/db/schema";
 import { requireBusiness } from "@/lib/db/queries";
 import { SettingsForm } from "@/components/dashboard/settings-form";
 import { DangerZone } from "@/components/dashboard/danger-zone";
 import { IntegrationsCard } from "@/components/dashboard/integrations-card";
+import { KbDocumentsCard } from "@/components/dashboard/kb-documents-card";
 
 export default async function SettingsPage({
   searchParams,
@@ -20,6 +21,18 @@ export default async function SettingsPage({
     .where(eq(knowledgeBase.businessId, business.id))
     .limit(1);
 
+  const docs = await db
+    .select()
+    .from(kbDocuments)
+    .where(
+      and(
+        eq(kbDocuments.businessId, business.id),
+        eq(kbDocuments.sourceType, "upload"),
+      ),
+    )
+    .orderBy(desc(kbDocuments.createdAt))
+    .limit(50);
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -30,6 +43,7 @@ export default async function SettingsPage({
         </p>
       </div>
       <SettingsForm business={business} kb={kb ?? null} />
+      <KbDocumentsCard documents={docs} />
       <IntegrationsCard
         status={{
           provider: business.calendarProvider,

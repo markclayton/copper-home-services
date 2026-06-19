@@ -2,6 +2,7 @@ import { serve } from "inngest/next";
 import { inngest } from "@/lib/jobs/client";
 import {
   dailyDigest,
+  kbCrawl,
   notifyOwnerAppointmentBooked,
   notifyOwnerCallSummary,
   notifyOwnerEmergency,
@@ -26,5 +27,6 @@ export const { GET, POST, PUT } = serve({
     notifyOwnerCallSummary,
     notifyOwnerMessageTaken,
     respondToInboundSms,
+    kbCrawl,
   ],
 });

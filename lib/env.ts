@@ -47,6 +47,10 @@ const envSchema = z.object({
 
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
 
+  // OpenAI: used only for KB embeddings (text-embedding-3-small). No chat
+  // calls go to OpenAI today — Anthropic stays the chat brain.
+  OPENAI_API_KEY: z.string().min(1).optional(),
+
   // Calendar integration (Google now, Microsoft later). The client ID +
   // secret come from a GCP OAuth client with the Calendar API enabled. The
   // token key encrypts refresh/access tokens at rest — generate with

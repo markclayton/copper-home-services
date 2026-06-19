@@ -25,6 +25,7 @@ import {
   updateBooking,
 } from "@/lib/booking/google";
 import { inngest } from "@/lib/jobs/client";
+import { searchKnowledge } from "@/lib/kb/retrieval";
 import { trackAppointmentBooked } from "@/lib/observability/events";
 import type { VapiToolCall, VapiToolResult } from "./types";
 
@@ -305,6 +306,38 @@ async function handleBookAppointment(
     startAt: booking.startISO,
   });
   return `Booked ${serviceType} for ${friendlyTime}. No text will be sent — caller declined.`;
+}
+
+async function handleSearchKnowledge(
+  ctx: ToolCtx,
+  args: ToolArgs,
+): Promise<string> {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  if (!query) return "No query provided.";
+
+  let hits: Awaited<ReturnType<typeof searchKnowledge>>;
+  try {
+    hits = await searchKnowledge({ businessId: ctx.business.id, query });
+  } catch (err) {
+    await recordEvent(ctx.business.id, "tool.search_knowledge.failed", {
+      query,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return "I couldn't search the knowledge base right now. Use the structured FAQ above, or take a message.";
+  }
+
+  if (hits.length === 0) {
+    return "Nothing in the knowledge base matched that. Use the structured FAQ above, or take a message if it's not covered.";
+  }
+
+  // Strip the chunks down for the model — passages, not the whole chunk.
+  // 600 chars per passage * 3 is plenty for a phone-call answer.
+  const passages = hits
+    .slice(0, 3)
+    .map((h, i) => `[${i + 1}] ${h.content.slice(0, 600).replace(/\s+/g, " ").trim()}`)
+    .join("\n\n");
+
+  return `Top knowledge-base passages:\n${passages}\n\nAnswer from these only — if the caller's specific question isn't covered, say so honestly.`;
 }
 
 async function handleLookupCustomer(
@@ -831,6 +864,9 @@ export async function handleToolCall(
         break;
       case "lookup_existing_customer":
         result = await handleLookupCustomer(ctx, args);
+        break;
+      case "search_knowledge":
+        result = await handleSearchKnowledge(ctx, args);
         break;
       case "send_emergency_alert":
         result = await handleEmergencyAlert(ctx, args);

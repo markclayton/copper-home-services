@@ -8,6 +8,7 @@ import {
   calls,
   contacts,
   events,
+  kbCrawlJobs,
   knowledgeBase,
   messages,
   ownerMessages,
@@ -15,6 +16,9 @@ import {
   type Business,
   type KnowledgeBase,
 } from "@/lib/db/schema";
+import { crawlSite } from "@/lib/kb/crawler";
+import { ingestText } from "@/lib/kb/ingest";
+import { extractKbFromPages } from "@/lib/kb/auto-extract";
 import { generateSmsReply, type SmsHistoryMessage } from "@/lib/ai/sms";
 import { sendSms } from "@/lib/telephony/twilio";
 import { env } from "@/lib/env";
@@ -23,6 +27,7 @@ import {
   type AppointmentBookedData,
   type CallSummaryReadyData,
   type EmergencyDetectedData,
+  type KbCrawlRequestedData,
   type MessageTakenData,
   type QuoteFollowupData,
   type SmsInboundReceivedData,
@@ -863,6 +868,173 @@ export const tenantScheduledTeardown = inngest.createFunction(
     }
 
     return { tornDown, reactivatedSkipped, considered: due.length };
+  },
+);
+
+/**
+ * kb/crawl-requested → crawl a website, embed each page into the RAG
+ * store, and (optionally) auto-extract structured services/FAQs into the
+ * knowledge_base row so the onboarding services step is pre-filled.
+ *
+ * Long-running by nature: a 30-page crawl can take 60-90s. Inngest's
+ * step.run boundaries give us crash safety + retry — the embed phase
+ * lives in its own step so a transient OpenAI 5xx replays just that
+ * step.
+ */
+export const kbCrawl = inngest.createFunction(
+  {
+    id: "kb-crawl",
+    triggers: [{ event: "kb/crawl-requested" }],
+    retries: 2,
+    concurrency: { limit: 4 },
+  },
+  async ({ event, step }) => {
+    const { businessId, crawlJobId, rootUrl, autoExtract } =
+      event.data as KbCrawlRequestedData;
+
+    await step.run("mark-discovering", async () => {
+      await db
+        .update(kbCrawlJobs)
+        .set({ status: "discovering", startedAt: new Date() })
+        .where(eq(kbCrawlJobs.id, crawlJobId));
+    });
+
+    const crawl = await step.run("crawl-site", async () => {
+      try {
+        const result = await crawlSite(rootUrl);
+        return { ok: true as const, result };
+      } catch (err) {
+        return {
+          ok: false as const,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+    });
+
+    if (!crawl.ok || crawl.result.pages.length === 0) {
+      await step.run("mark-failed", async () => {
+        await db
+          .update(kbCrawlJobs)
+          .set({
+            status: "failed",
+            error: crawl.ok ? "no pages crawled" : crawl.message,
+            completedAt: new Date(),
+          })
+          .where(eq(kbCrawlJobs.id, crawlJobId));
+      });
+      return { ok: false, reason: crawl.ok ? "no_pages" : "crawl_error" };
+    }
+
+    await step.run("mark-fetching", async () => {
+      await db
+        .update(kbCrawlJobs)
+        .set({
+          status: "embedding",
+          pagesTotal: crawl.result.pages.length,
+        })
+        .where(eq(kbCrawlJobs.id, crawlJobId));
+    });
+
+    // Ingest each page as its own kb_documents row. We don't parallelize
+    // the embeds across pages here because embedMany already batches
+    // chunks within a page, and the crawl was the latency-dominant step.
+    let scraped = 0;
+    for (let i = 0; i < crawl.result.pages.length; i++) {
+      const page = crawl.result.pages[i];
+      await step.run(`ingest-${i}`, async () => {
+        await ingestText(
+          businessId,
+          {
+            kind: "crawl",
+            title: page.title || page.url,
+            sourceUrl: page.url,
+            crawlJobId,
+          },
+          page.text,
+        );
+        scraped += 1;
+        await db
+          .update(kbCrawlJobs)
+          .set({ pagesScraped: scraped })
+          .where(eq(kbCrawlJobs.id, crawlJobId));
+      });
+    }
+
+    if (autoExtract) {
+      await step.run("auto-extract", async () => {
+        const [biz] = await db
+          .select({ name: businesses.name })
+          .from(businesses)
+          .where(eq(businesses.id, businessId))
+          .limit(1);
+
+        let extraction;
+        try {
+          extraction = await extractKbFromPages({
+            businessName: biz?.name ?? "the business",
+            pages: crawl.result.pages,
+          });
+        } catch (err) {
+          await db.insert(events).values({
+            businessId,
+            type: "kb.auto_extract.failed",
+            payload: {
+              message: err instanceof Error ? err.message : String(err),
+            },
+          });
+          return;
+        }
+
+        // The business step already pre-fills services/faqs from the
+        // industry starter pack as a sensible default. If our extraction
+        // produced real content from the owner's actual website, that's
+        // higher-fidelity than the starter pack — overwrite. We only fall
+        // back to the starter pack when no website was provided or the
+        // extraction came up empty.
+        const [kb] = await db
+          .select()
+          .from(knowledgeBase)
+          .where(eq(knowledgeBase.businessId, businessId))
+          .limit(1);
+        if (!kb) return;
+
+        const patch: Record<string, unknown> = { updatedAt: new Date() };
+        if (extraction.services.length > 0) {
+          patch.services = extraction.services;
+        }
+        if (extraction.faqs.length > 0) {
+          patch.faqs = extraction.faqs;
+        }
+        if (Object.keys(patch).length === 1) return; // only updatedAt
+        await db
+          .update(knowledgeBase)
+          .set(patch)
+          .where(eq(knowledgeBase.businessId, businessId));
+
+        await db.insert(events).values({
+          businessId,
+          type: "kb.auto_extracted",
+          payload: {
+            servicesCount: extraction.services.length,
+            faqsCount: extraction.faqs.length,
+            crawlJobId,
+          },
+        });
+      });
+    }
+
+    await step.run("mark-ready", async () => {
+      await db
+        .update(kbCrawlJobs)
+        .set({ status: "ready", completedAt: new Date() })
+        .where(eq(kbCrawlJobs.id, crawlJobId));
+    });
+
+    return {
+      ok: true,
+      pagesScraped: scraped,
+      autoExtracted: autoExtract,
+    };
   },
 );
 

@@ -123,6 +123,26 @@ export function buildToolDefs(business: Business): VapiToolDef[] {
     {
       type: "function",
       function: {
+        name: "search_knowledge",
+        description:
+          "Search the business's uploaded documents and crawled website pages for an answer to a caller's question. Use this when the caller asks about details (warranty, materials, scope, policies) that aren't in the structured FAQ above. Returns up to 3 short passages — answer from those, don't invent.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "The caller's question phrased as a search query. Strip filler words; keep it specific.",
+            },
+          },
+          required: ["query"],
+        },
+      },
+      server,
+    },
+    {
+      type: "function",
+      function: {
         name: "lookup_existing_customer",
         description:
           "Check if the caller is an existing customer by phone number.",

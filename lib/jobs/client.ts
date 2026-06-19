@@ -66,6 +66,15 @@ export type AppointmentRescheduledData = {
   newStartAt: string;
 };
 
+export type KbCrawlRequestedData = {
+  businessId: string;
+  crawlJobId: string;
+  rootUrl: string;
+  /** When true, the crawl function also calls auto-extract and fills in
+   *  the KB services/FAQs if they're empty. Set during onboarding. */
+  autoExtract: boolean;
+};
+
 export const inngest = new Inngest({
   id: "copper-home-services",
 });
