@@ -148,6 +148,18 @@ export function SettingsForm({
             defaultValue={(business.serviceAreaZips ?? []).join(", ")}
             placeholder="94102, 94103, 94110"
           />
+          <FormField
+            label="Live transfer number (optional)"
+            name="transferNumber"
+            type="tel"
+            defaultValue={business.transferNumber ?? ""}
+            placeholder="+14155551234"
+          />
+          <p className="md:col-span-2 text-xs text-muted-foreground -mt-2">
+            When set, the AI will offer to transfer hostile or escalated
+            callers to this number. Use E.164 format. Leave blank to disable
+            transfers — the AI will take a message instead.
+          </p>
           <div className="md:col-span-2">
             <GoogleReviewsField
               initialEnabled={business.reviewRequestsEnabled}

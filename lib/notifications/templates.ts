@@ -208,6 +208,47 @@ export function renderUsageAlert(n: UsageAlertNotice): RenderedMessage {
   return { sms, emailSubject, emailHtml: html, emailText: text };
 }
 
+export type OwnerMessageNotice = {
+  businessName: string;
+  callerName: string | null;
+  callerPhone: string | null;
+  subject: string | null;
+  message: string;
+  callId: string | null;
+};
+
+export function renderOwnerMessage(n: OwnerMessageNotice): RenderedMessage {
+  const phoneFmt = n.callerPhone ? formatPhone(n.callerPhone) : "(no number)";
+  const who = n.callerName ?? phoneFmt;
+  const url = n.callId
+    ? `${env.APP_URL}/dashboard/calls/${n.callId}`
+    : `${env.APP_URL}/dashboard`;
+
+  const sms = `Message from ${who}${n.subject ? ` re: ${n.subject}` : ""}: "${n.message.slice(0, 140)}" • ${phoneFmt}\n${url}`;
+
+  const emailSubject = `Message from ${who}${n.subject ? ` — ${n.subject}` : ""}`;
+  const html = shell(
+    `<h1 style="margin:0 0 4px 0;font-size:20px;font-weight:600">Message for you</h1>
+    <p style="margin:0;color:#475569;font-size:14px">From ${escape(who)} · ${escape(phoneFmt)}${n.subject ? ` · ${escape(n.subject)}` : ""}</p>
+    <div style="margin-top:12px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;color:#1e293b;line-height:1.55;white-space:pre-wrap">${escape(n.message)}</div>`,
+    { ctaUrl: url, ctaLabel: "Open in dashboard" },
+  );
+
+  const text = [
+    `Message from ${who}`,
+    n.subject ? `Re: ${n.subject}` : null,
+    `Phone: ${phoneFmt}`,
+    "",
+    n.message,
+    "",
+    `View: ${url}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return { sms, emailSubject, emailHtml: html, emailText: text };
+}
+
 export function renderCallSummary(n: CallSummaryNotice): RenderedMessage {
   const url = dashboardCallUrl(n.callId);
   const phoneFmt = formatPhone(n.customerPhone);

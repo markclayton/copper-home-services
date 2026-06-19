@@ -372,6 +372,96 @@ export async function createBooking(
   };
 }
 
+export type UpdateBookingArgs = {
+  startISO?: string;
+  endISO?: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+};
+
+/**
+ * Patch an existing Google Calendar event. Used by the reschedule_appointment
+ * tool — only the fields the caller actually changed get sent so we don't
+ * clobber the rest of the event metadata Google maintains (attendees,
+ * reminders, conference info, etc.).
+ */
+export async function updateBooking(
+  business: Business,
+  calEventId: string,
+  args: UpdateBookingArgs,
+): Promise<{ startISO: string; endISO: string }> {
+  const oauth = await loadOAuth(business);
+
+  const body: Record<string, unknown> = {};
+  if (args.startISO) {
+    body.start = {
+      dateTime: new Date(args.startISO).toISOString(),
+      timeZone: business.timezone,
+    };
+  }
+  if (args.endISO) {
+    body.end = {
+      dateTime: new Date(args.endISO).toISOString(),
+      timeZone: business.timezone,
+    };
+  } else if (args.startISO) {
+    body.end = {
+      dateTime: new Date(
+        new Date(args.startISO).getTime() + 60 * 60_000,
+      ).toISOString(),
+      timeZone: business.timezone,
+    };
+  }
+  if (args.summary !== undefined) body.summary = args.summary;
+  if (args.description !== undefined) body.description = args.description;
+  if (args.location !== undefined) body.location = args.location;
+
+  const res = await fetch(
+    `${CAL_API}/calendars/${encodeURIComponent(oauth.calendarId)}/events/${encodeURIComponent(calEventId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${oauth.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Google events.patch failed (${res.status}): ${text}`);
+  }
+  const data = (await res.json()) as {
+    start: { dateTime: string };
+    end: { dateTime: string };
+  };
+  return { startISO: data.start.dateTime, endISO: data.end.dateTime };
+}
+
+/**
+ * Delete a Google Calendar event. Used by cancel_appointment. Google
+ * returns 410 for already-deleted events — treat that as success since
+ * the caller's intent ("this booking should be gone") is satisfied.
+ */
+export async function deleteBooking(
+  business: Business,
+  calEventId: string,
+): Promise<void> {
+  const oauth = await loadOAuth(business);
+  const res = await fetch(
+    `${CAL_API}/calendars/${encodeURIComponent(oauth.calendarId)}/events/${encodeURIComponent(calEventId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${oauth.accessToken}` },
+    },
+  );
+  if (!res.ok && res.status !== 410 && res.status !== 404) {
+    const text = await res.text();
+    throw new Error(`Google events.delete failed (${res.status}): ${text}`);
+  }
+}
+
 /**
  * Revoke a refresh token so Google severs ongoing access. Used at tenant
  * teardown. Best-effort: even if Google 4xxs (already-revoked, expired)

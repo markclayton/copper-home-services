@@ -45,6 +45,27 @@ export type SmsInboundReceivedData = {
   body: string;
 };
 
+export type MessageTakenData = {
+  businessId: string;
+  ownerMessageId: string;
+  vapiCallId?: string;
+};
+
+export type AppointmentCancelledData = {
+  businessId: string;
+  appointmentId: string;
+  vapiCallId?: string;
+  reason: "caller_cancelled" | "owner_cancelled";
+};
+
+export type AppointmentRescheduledData = {
+  businessId: string;
+  appointmentId: string;
+  vapiCallId?: string;
+  oldStartAt: string;
+  newStartAt: string;
+};
+
 export const inngest = new Inngest({
   id: "copper-home-services",
 });

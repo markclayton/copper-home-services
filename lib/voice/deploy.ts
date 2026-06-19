@@ -58,7 +58,7 @@ export async function deployAssistant(
   }
 
   const systemPrompt = renderAssistantPrompt(business, kb);
-  const tools = buildToolDefs(businessId);
+  const tools = buildToolDefs(business);
 
   const config: VapiAssistantConfig = {
     name: `${business.name} Receptionist`,

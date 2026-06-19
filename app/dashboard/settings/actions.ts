@@ -41,6 +41,15 @@ const settingsSchema = z.object({
   ownerPhone: z.string().min(7),
   timezone: z.string().min(1),
   serviceAreaZips: z.string().optional(), // comma-separated
+  /** Optional E.164 phone for live transfers. Empty string ⇒ tool omitted. */
+  transferNumber: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() ?? "")
+    .refine(
+      (v) => v === "" || /^\+[1-9]\d{6,14}$/.test(v),
+      "Transfer number must be E.164 (e.g. +14155551234) or blank",
+    ),
   googleReviewUrl: z.string().url().optional().or(z.literal("")),
   // Checkboxes are absent from FormData when unchecked, so coerce: any
   // truthy string means "on", missing means "off".
@@ -140,6 +149,7 @@ export async function saveSettings(
     ownerPhone: v.ownerPhone,
     timezone: v.timezone,
     serviceAreaZips: zips,
+    transferNumber: v.transferNumber === "" ? null : v.transferNumber,
     googleReviewUrl: v.googleReviewUrl || null,
     reviewRequestsEnabled: v.reviewRequestsEnabled,
     voiceId: v.voiceId ?? DEFAULT_VOICE_ID,

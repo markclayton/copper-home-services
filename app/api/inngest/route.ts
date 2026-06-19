@@ -5,6 +5,7 @@ import {
   notifyOwnerAppointmentBooked,
   notifyOwnerCallSummary,
   notifyOwnerEmergency,
+  notifyOwnerMessageTaken,
   quoteFollowupReminder,
   respondToInboundSms,
   reviewRequestFlow,
@@ -23,6 +24,7 @@ export const { GET, POST, PUT } = serve({
     notifyOwnerAppointmentBooked,
     notifyOwnerEmergency,
     notifyOwnerCallSummary,
+    notifyOwnerMessageTaken,
     respondToInboundSms,
   ],
 });

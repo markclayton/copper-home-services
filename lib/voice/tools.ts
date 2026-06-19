@@ -1,12 +1,18 @@
 /**
  * Tool definitions exposed to the Vapi assistant.
- * Each tool's `server.url` points at our webhook; Vapi will POST tool-calls
- * messages there during the call and wait for a response.
+ * Function tools' server.url points at our webhook; Vapi POSTs tool-calls
+ * messages there and waits synchronously for a response.
+ *
+ * The built-in transferCall tool is wired separately — Vapi handles the SIP
+ * transfer itself and our webhook is not involved at runtime.
  */
 
 import { env } from "@/lib/env";
+import type { Business } from "@/lib/db/schema";
 
-export type VapiToolDef = {
+type Server = { url: string; secret?: string };
+
+export type VapiFunctionTool = {
   type: "function";
   async?: boolean;
   function: {
@@ -18,18 +24,33 @@ export type VapiToolDef = {
       required?: string[];
     };
   };
-  server?: {
-    url: string;
-    secret?: string;
-  };
+  server?: Server;
 };
 
-export function buildToolDefs(businessId: string): VapiToolDef[] {
-  const serverUrl = `${env.APP_URL}/api/webhooks/vapi/${businessId}`;
-  const secret = env.VAPI_WEBHOOK_SECRET;
-  const server = secret ? { url: serverUrl, secret } : { url: serverUrl };
+export type VapiTransferCallTool = {
+  type: "transferCall";
+  destinations: Array<{
+    type: "number";
+    number: string;
+    message?: string;
+    description?: string;
+  }>;
+};
 
-  return [
+export type VapiToolDef = VapiFunctionTool | VapiTransferCallTool;
+
+/**
+ * Build the full assistant tool set for a tenant. The transferCall tool is
+ * only included when the owner has set a transfer number — otherwise the
+ * model can't call it (and the prompt instructs it to take a message
+ * instead).
+ */
+export function buildToolDefs(business: Business): VapiToolDef[] {
+  const serverUrl = `${env.APP_URL}/api/webhooks/vapi/${business.id}`;
+  const secret = env.VAPI_WEBHOOK_SECRET;
+  const server: Server = secret ? { url: serverUrl, secret } : { url: serverUrl };
+
+  const tools: VapiToolDef[] = [
     {
       type: "function",
       function: {
@@ -160,5 +181,148 @@ export function buildToolDefs(businessId: string): VapiToolDef[] {
       },
       server,
     },
+    {
+      type: "function",
+      function: {
+        name: "take_message",
+        description:
+          "Capture a message for the owner. Use this when the caller wants the owner to call back about something the assistant can't resolve directly (specific staff member, complaint, vendor inquiry, etc.). Confirm the message back to the caller in your own words before calling this tool.",
+        parameters: {
+          type: "object",
+          properties: {
+            caller_name: { type: "string" },
+            caller_phone: {
+              type: "string",
+              description: "Best callback number in E.164 format.",
+            },
+            subject: {
+              type: "string",
+              description:
+                "One short phrase: what the message is about (e.g. 'invoice question', 'follow-up on yesterday's quote').",
+            },
+            message: {
+              type: "string",
+              description:
+                "The full message in the caller's words, verbatim where reasonable.",
+            },
+          },
+          required: ["caller_phone", "message"],
+        },
+      },
+      server,
+    },
+    {
+      type: "function",
+      function: {
+        name: "lookup_appointment_for_change",
+        description:
+          "Look up the caller's upcoming appointments by phone number. Use this FIRST when the caller wants to cancel or reschedule. Returns the appointment id and details needed for the next steps.",
+        parameters: {
+          type: "object",
+          properties: {
+            phone: {
+              type: "string",
+              description: "Caller's phone number in E.164 format.",
+            },
+          },
+          required: ["phone"],
+        },
+      },
+      server,
+    },
+    {
+      type: "function",
+      function: {
+        name: "send_appointment_change_otp",
+        description:
+          "Send a 6-digit verification code by SMS to the phone on file for an appointment. The caller must read this code back before any change is allowed. Tell the caller you're texting it and wait for them to read it.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: {
+              type: "string",
+              description:
+                "Appointment UUID returned by lookup_appointment_for_change.",
+            },
+          },
+          required: ["appointment_id"],
+        },
+      },
+      server,
+    },
+    {
+      type: "function",
+      function: {
+        name: "verify_appointment_change_otp",
+        description:
+          "Verify the 6-digit code the caller read back. Returns success or failure. On success the caller is authorized to cancel or reschedule this specific appointment for the next 5 minutes.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: { type: "string" },
+            code: {
+              type: "string",
+              description: "Exactly the 6 digits the caller read back.",
+            },
+          },
+          required: ["appointment_id", "code"],
+        },
+      },
+      server,
+    },
+    {
+      type: "function",
+      function: {
+        name: "cancel_appointment",
+        description:
+          "Cancel an appointment. Only call this AFTER verify_appointment_change_otp succeeded for this appointment in the current call.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: { type: "string" },
+          },
+          required: ["appointment_id"],
+        },
+      },
+      server,
+    },
+    {
+      type: "function",
+      function: {
+        name: "reschedule_appointment",
+        description:
+          "Move an appointment to a new start time. Only call this AFTER verify_appointment_change_otp succeeded for this appointment in the current call. Call get_available_slots first to pick a real opening.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: { type: "string" },
+            new_start_at_iso: {
+              type: "string",
+              description:
+                "ISO 8601 start time the caller agreed to. Should be a slot returned by get_available_slots.",
+            },
+          },
+          required: ["appointment_id", "new_start_at_iso"],
+        },
+      },
+      server,
+    },
   ];
+
+  if (business.transferNumber) {
+    tools.push({
+      type: "transferCall",
+      destinations: [
+        {
+          type: "number",
+          number: business.transferNumber,
+          message:
+            "I'm connecting you with the owner now. Please hold for just a moment.",
+          description: "Live transfer to the business owner.",
+        },
+      ],
+    });
+  }
+
+  return tools;
 }

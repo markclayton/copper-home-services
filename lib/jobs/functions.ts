@@ -10,6 +10,7 @@ import {
   events,
   knowledgeBase,
   messages,
+  ownerMessages,
   reviewRequests,
   type Business,
   type KnowledgeBase,
@@ -22,6 +23,7 @@ import {
   type AppointmentBookedData,
   type CallSummaryReadyData,
   type EmergencyDetectedData,
+  type MessageTakenData,
   type QuoteFollowupData,
   type SmsInboundReceivedData,
   type TenantProvisionNeededData,
@@ -35,7 +37,9 @@ import {
   renderAppointment,
   renderCallSummary,
   renderEmergency,
+  renderOwnerMessage,
 } from "@/lib/notifications/templates";
+import { sendEmail, isEmailConfigured } from "@/lib/notifications/email";
 import { recordWebhookEvent } from "@/lib/db/webhook-idempotency";
 import { trackOnboardingCompleted } from "@/lib/observability/events";
 
@@ -859,5 +863,97 @@ export const tenantScheduledTeardown = inngest.createFunction(
     }
 
     return { tornDown, reactivatedSkipped, considered: due.length };
+  },
+);
+
+/**
+ * message/taken → owner SMS + email when the assistant captures a message
+ * via the take_message tool. Doesn't go through notifyOwner because the
+ * channels matrix doesn't model a "message" event today; we send SMS
+ * directly (like quoteFollowupReminder) and best-effort email when Resend
+ * is configured.
+ */
+export const notifyOwnerMessageTaken = inngest.createFunction(
+  {
+    id: "notify-owner-message-taken",
+    triggers: [{ event: "message/taken" }],
+  },
+  async ({ event, step }) => {
+    const { businessId, ownerMessageId } = event.data as MessageTakenData;
+
+    const fresh = await step.run("claim-notification-lock", () =>
+      recordWebhookEvent("notification", `message:${ownerMessageId}`),
+    );
+    if (!fresh) return { skipped: "already notified for this message" };
+
+    const ctx = await step.run("load-context", async () => {
+      const [biz] = await db
+        .select()
+        .from(businesses)
+        .where(eq(businesses.id, businessId))
+        .limit(1);
+      if (!biz) return null;
+
+      const [msg] = await db
+        .select()
+        .from(ownerMessages)
+        .where(eq(ownerMessages.id, ownerMessageId))
+        .limit(1);
+      if (!msg) return null;
+
+      return { biz: biz as unknown as Business, msg };
+    });
+
+    if (!ctx) return { skipped: "missing business or message" };
+    const { biz, msg } = ctx;
+
+    const rendered = renderOwnerMessage({
+      businessName: biz.name,
+      callerName: msg.callerName,
+      callerPhone: msg.callerPhone,
+      subject: msg.subject,
+      message: msg.message,
+      callId: msg.callId,
+    });
+
+    if (biz.ownerPhone) {
+      await step.run("send-owner-sms", async () => {
+        try {
+          await sendSms({
+            businessId,
+            to: biz.ownerPhone,
+            body: rendered.sms,
+          });
+        } catch (err) {
+          await db.insert(events).values({
+            businessId,
+            type: "notify.message.sms.failed",
+            payload: {
+              message: err instanceof Error ? err.message : String(err),
+            },
+          });
+        }
+      });
+    }
+
+    if (biz.ownerEmail && isEmailConfigured()) {
+      await step.run("send-owner-email", async () => {
+        const sent = await sendEmail({
+          to: biz.ownerEmail,
+          subject: rendered.emailSubject,
+          html: rendered.emailHtml,
+          text: rendered.emailText,
+        });
+        if (!sent.ok) {
+          await db.insert(events).values({
+            businessId,
+            type: "notify.message.email.failed",
+            payload: { reason: sent.reason },
+          });
+        }
+      });
+    }
+
+    return { ok: true };
   },
 );

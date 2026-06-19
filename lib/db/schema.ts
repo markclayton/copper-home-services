@@ -112,6 +112,12 @@ export const calendarProvider = pgEnum("calendar_provider", [
   "microsoft",
 ]);
 
+export const ownerMessageStatus = pgEnum("owner_message_status", [
+  "new",
+  "acknowledged",
+  "resolved",
+]);
+
 export const industry = pgEnum("industry", [
   "hvac",
   "plumbing",
@@ -164,6 +170,10 @@ export const businesses = pgTable(
     calendarTokenExpiresAt: timestamp({ withTimezone: true }),
     calendarConnectedAt: timestamp({ withTimezone: true }),
     desiredPhoneNumber: text(),
+    /** Destination for the assistant's transfer_call tool. E.164. When NULL
+     *  the tool is omitted from the assistant config entirely so the model
+     *  can't even attempt a transfer. */
+    transferNumber: text(),
     vapiAssistantId: text(),
     twilioSubaccountSid: text(),
     twilioNumber: text(),
@@ -433,6 +443,76 @@ export const events = pgTable(
   ],
 ).enableRLS();
 
+/**
+ * Voicemail-style callbacks captured by the assistant's take_message tool.
+ * Distinct from messages (SMS) because the dashboard treats these as a
+ * triage queue, not a back-and-forth thread. New rows fan out an owner
+ * notification via the message/taken Inngest event.
+ */
+export const ownerMessages = pgTable(
+  "owner_messages",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    businessId: uuid()
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    callId: uuid().references(() => calls.id, { onDelete: "set null" }),
+    contactId: uuid().references(() => contacts.id, { onDelete: "set null" }),
+    callerName: text(),
+    callerPhone: text(),
+    subject: text(),
+    message: text().notNull(),
+    status: ownerMessageStatus().notNull().default("new"),
+    acknowledgedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    pgPolicy("owners_select_own_owner_messages", {
+      for: "select",
+      to: authenticatedRole,
+      using: businessOwnerCheck,
+    }),
+    pgPolicy("owners_update_own_owner_messages", {
+      for: "update",
+      to: authenticatedRole,
+      using: businessOwnerCheck,
+      withCheck: businessOwnerCheck,
+    }),
+  ],
+).enableRLS();
+
+/**
+ * OTP gate for caller-initiated cancel/reschedule. The assistant calls
+ * send_appointment_change_otp which texts a 6-digit code to the phone on
+ * file; verify_appointment_change_otp stamps verifiedAt; cancel/reschedule
+ * tools refuse to run on an appointment without a fresh, unconsumed
+ * verification row. Code stored as sha256 hash + per-row expiry + attempt
+ * counter to defend against brute force.
+ *
+ * No RLS policies: this table is tool-only. The Vapi webhook runs as the
+ * service role; the dashboard never reads it directly.
+ */
+export const appointmentChangeVerifications = pgTable(
+  "appointment_change_verifications",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    businessId: uuid()
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    appointmentId: uuid()
+      .notNull()
+      .references(() => appointments.id, { onDelete: "cascade" }),
+    contactPhone: text().notNull(),
+    codeHash: text().notNull(),
+    attempts: integer().notNull().default(0),
+    expiresAt: timestamp({ withTimezone: true }).notNull(),
+    verifiedAt: timestamp({ withTimezone: true }),
+    consumedAt: timestamp({ withTimezone: true }),
+    vapiCallId: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+).enableRLS();
+
 export type Business = typeof businesses.$inferSelect;
 export type NewBusiness = typeof businesses.$inferInsert;
 export type KnowledgeBase = typeof knowledgeBase.$inferSelect;
@@ -444,3 +524,7 @@ export type Appointment = typeof appointments.$inferSelect;
 export type NewAppointment = typeof appointments.$inferInsert;
 export type ReviewRequest = typeof reviewRequests.$inferSelect;
 export type Event = typeof events.$inferSelect;
+export type OwnerMessage = typeof ownerMessages.$inferSelect;
+export type NewOwnerMessage = typeof ownerMessages.$inferInsert;
+export type AppointmentChangeVerification =
+  typeof appointmentChangeVerifications.$inferSelect;
