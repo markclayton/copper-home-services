@@ -59,6 +59,8 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/api/") ||
     path.startsWith("/r/") ||
     path.startsWith("/for/") ||
+    path.startsWith("/vs") ||
+    path === "/missed-call-calculator" ||
     path.startsWith("/account-pending");
 
   if (!user && !isPublic) {

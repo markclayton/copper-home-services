@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { VerticalLandingPage } from "@/components/landing/vertical-landing-page";
-import { getVertical, verticalSlugs } from "@/lib/landing-verticals";
+import { getVertical, verticalSlugs, type Vertical } from "@/lib/landing-verticals";
+import { getExtendedFaqs } from "@/lib/vertical-faqs-extended";
 
 export function generateStaticParams() {
   return verticalSlugs().map((slug) => ({ slug }));
@@ -30,6 +31,19 @@ export async function generateMetadata({
   };
 }
 
+function buildFaqJsonLd(vertical: Vertical) {
+  const extended = getExtendedFaqs(vertical.slug);
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [...vertical.faqs, ...extended].map((f) => ({
+      "@type": "Question",
+      name: f.q,
+      acceptedAnswer: { "@type": "Answer", text: f.a },
+    })),
+  };
+}
+
 export default async function VerticalPage({
   params,
 }: {
@@ -43,5 +57,15 @@ export default async function VerticalPage({
   const { data } = await supabase.auth.getClaims();
   const isAuthed = !!data?.claims;
 
-  return <VerticalLandingPage vertical={vertical} isAuthed={isAuthed} />;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(buildFaqJsonLd(vertical)),
+        }}
+      />
+      <VerticalLandingPage vertical={vertical} isAuthed={isAuthed} />
+    </>
+  );
 }

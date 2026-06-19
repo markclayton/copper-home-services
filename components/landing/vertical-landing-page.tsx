@@ -24,6 +24,7 @@ import {
 } from "./landing-page";
 import { Reveal, RevealGroup, RevealItem } from "./reveal";
 import type { Vertical } from "@/lib/landing-verticals";
+import { getExtendedFaqs } from "@/lib/vertical-faqs-extended";
 
 export function VerticalLandingPage({
   vertical,
@@ -137,6 +138,7 @@ function VerticalHero({
 }
 
 function VerticalFaq({ vertical }: { vertical: Vertical }) {
+  const extended = getExtendedFaqs(vertical.slug);
   return (
     <section id="faq" className="border-b border-ink/10">
       <div className="mx-auto max-w-3xl px-6 py-20 md:py-28">
@@ -170,6 +172,41 @@ function VerticalFaq({ vertical }: { vertical: Vertical }) {
             </RevealItem>
           ))}
         </RevealGroup>
+
+        {extended.length > 0 && (
+          <>
+            <Reveal className="text-center mt-16 mb-8">
+              <div className="text-xs uppercase tracking-[0.18em] text-copper-600 font-medium mb-3">
+                More questions
+              </div>
+              <h3 className="font-display text-2xl md:text-3xl leading-tight tracking-tight">
+                The detailed answers.
+              </h3>
+            </Reveal>
+            <RevealGroup
+              className="divide-y divide-ink/15 border-t border-b border-ink/15"
+              stagger={0.05}
+            >
+              {extended.map((item, i) => (
+                <RevealItem key={i}>
+                  <details className="group py-5">
+                    <summary className="flex items-center justify-between cursor-pointer list-none">
+                      <span className="font-display text-base md:text-lg pr-6">
+                        {item.q}
+                      </span>
+                      <span className="font-mono text-copper-600 text-lg shrink-0 group-open:rotate-45 transition-transform duration-300">
+                        +
+                      </span>
+                    </summary>
+                    <div className="mt-3 text-ink-700 leading-relaxed text-[15px]">
+                      {item.a}
+                    </div>
+                  </details>
+                </RevealItem>
+              ))}
+            </RevealGroup>
+          </>
+        )}
       </div>
     </section>
   );
