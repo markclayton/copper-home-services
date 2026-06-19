@@ -11,6 +11,10 @@ import {
 } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { summarizeCall } from "@/lib/ai/llm";
+import {
+  recordAnthropicUsage,
+  recordVoiceMinutes,
+} from "@/lib/billing/unit-events";
 import { handleToolCall, type ToolCtx } from "@/lib/voice/tool-handlers";
 import { inngest } from "@/lib/jobs/client";
 import { getMinuteCap, type PlanTier } from "@/lib/billing/plans";
@@ -273,12 +277,19 @@ async function handleEndOfCallReport(
 
   if (transcriptText) {
     try {
-      const result = await summarizeCall(transcriptText);
+      const { summary: result, usage } = await summarizeCall(transcriptText);
       summaryText = summaryText ?? result.summary;
       intent = result.intent;
       outcome = result.outcome;
       isEmergency = result.isEmergency;
       ownerLine = result.ownerLine;
+      void recordAnthropicUsage({
+        businessId: business.id,
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        sourceId: `summarize:${callPayload.id}`,
+      });
     } catch (err) {
       await db.insert(events).values({
         businessId: business.id,
@@ -373,6 +384,12 @@ async function handleEndOfCallReport(
   });
 
   if (durationSec && durationSec > 0) {
+    void recordVoiceMinutes({
+      businessId: business.id,
+      durationSec,
+      callId: upserted?.id ?? null,
+      sourceId: callPayload.id,
+    });
     await checkVoiceUsageAlerts(business, durationSec);
   }
 }

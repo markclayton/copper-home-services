@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { kbChunks, kbDocuments, type KbDocument } from "@/lib/db/schema";
+import { recordEmbeddingUsage } from "@/lib/billing/unit-events";
 import { chunk } from "./chunker";
 import { embedMany } from "./embeddings";
 
@@ -104,6 +105,12 @@ export async function ingestText(
     }
 
     const { vectors, totalTokens } = await embedMany(chunks.map((c) => c.content));
+
+    void recordEmbeddingUsage({
+      businessId,
+      tokens: totalTokens,
+      sourceId: `ingest:${doc.id}`,
+    });
 
     await db.insert(kbChunks).values(
       chunks.map((c, i) => ({

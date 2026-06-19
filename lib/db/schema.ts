@@ -4,6 +4,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   pgPolicy,
@@ -141,6 +142,14 @@ export const kbCrawlStatus = pgEnum("kb_crawl_status", [
   "embedding",
   "ready",
   "failed",
+]);
+
+export const unitEventType = pgEnum("unit_event_type", [
+  "voice_minute",
+  "sms_segment",
+  "ai_input_token",
+  "ai_output_token",
+  "embedding_token",
 ]);
 
 export const industry = pgEnum("industry", [
@@ -677,6 +686,37 @@ export const kbCrawlJobs = pgTable(
   ],
 ).enableRLS();
 
+/**
+ * Per-event provider cost log. One row per billable unit incurred —
+ * voice minute, SMS segment, AI input/output token, embedding token.
+ * Total in micro-cents (1e-6 USD) to keep token-level prices lossless.
+ *
+ * No SELECT policy: this is operator-only data, never exposed to
+ * tenants. Roll-ups happen via the service role in scripts/admin.
+ */
+export const unitEconomicsEvents = pgTable(
+  "unit_economics_events",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    businessId: uuid()
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    eventType: unitEventType().notNull(),
+    quantity: numeric({ precision: 20, scale: 6 }).notNull(),
+    unitPriceMicroCents: numeric({ precision: 20, scale: 6 }).notNull(),
+    totalMicroCents: numeric({ precision: 20, scale: 6 }).notNull(),
+    currency: text().notNull().default("USD"),
+    /** "vapi" | "twilio" | "anthropic" | "openai" — whichever vendor we paid. */
+    source: text().notNull(),
+    /** Vendor-supplied id (vapi call id, twilio sid, anthropic request id)
+     *  used to dedup if a webhook fires twice or we replay an action. */
+    sourceId: text(),
+    callId: uuid().references(() => calls.id, { onDelete: "set null" }),
+    messageId: uuid().references(() => messages.id, { onDelete: "set null" }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+).enableRLS();
+
 export type Business = typeof businesses.$inferSelect;
 export type NewBusiness = typeof businesses.$inferInsert;
 export type KnowledgeBase = typeof knowledgeBase.$inferSelect;
@@ -701,3 +741,5 @@ export type NewKbCrawlJob = typeof kbCrawlJobs.$inferInsert;
 export type CallTranscriptSegment = typeof callTranscriptSegments.$inferSelect;
 export type NewCallTranscriptSegment =
   typeof callTranscriptSegments.$inferInsert;
+export type UnitEconomicsEvent = typeof unitEconomicsEvents.$inferSelect;
+export type NewUnitEconomicsEvent = typeof unitEconomicsEvents.$inferInsert;

@@ -13,6 +13,7 @@
     "provision": "bun scripts/provision-tenant.ts",
     "test:calendar": "bun scripts/test-calendar.ts",
     "twilio:cleanup": "bun scripts/twilio-cleanup.ts",
+    "economics": "bun scripts/economics-report.ts",
     "tunnel": "ngrok http --url=sociologically-pleuropneumonic-leon.ngrok-free.dev 3000"
   },
   "dependencies": {

@@ -3,6 +3,7 @@ import { and, count, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { businesses, contacts, events, messages } from "@/lib/db/schema";
 import { env, requireEnv } from "@/lib/env";
+import { recordSmsSegments } from "@/lib/billing/unit-events";
 
 let cached: Twilio | null = null;
 
@@ -191,7 +192,39 @@ export async function sendSms({
     })
     .returning();
 
+  // Twilio bills per segment, not per message. GSM-7 fits 160 chars/segment;
+  // anything with unicode (emoji, accented chars) drops to 70/segment. We
+  // approximate by counting unicode in the body — close enough for cost
+  // accounting, and the carrier-level numSegments field on Twilio's response
+  // isn't reliably populated synchronously on create().
+  const segments = estimateSmsSegments(body);
+  void recordSmsSegments({
+    businessId,
+    segments,
+    sourceId: sent.sid,
+    messageId: row.id,
+  });
+
   return row;
+}
+
+/**
+ * Approximate SMS segment count. Carriers split based on encoding:
+ *   GSM-7 (basic Latin + a few symbols): 160 chars per segment, 153 for
+ *   multi-segment due to UDH header.
+ *   UCS-2 (anything with unicode — emoji, accents, etc.): 70 chars per
+ *   segment, 67 for multi-segment.
+ * We treat any non-ASCII character as forcing UCS-2 — a reasonable
+ * approximation that errs slightly toward over-counting cost.
+ */
+export function estimateSmsSegments(body: string): number {
+  if (!body) return 0;
+  const len = body.length;
+  const isUnicode = /[^\x00-\x7F]/.test(body);
+  const singleCap = isUnicode ? 70 : 160;
+  const multiCap = isUnicode ? 67 : 153;
+  if (len <= singleCap) return 1;
+  return Math.ceil(len / multiCap);
 }
 
 function mapTwilioStatus(

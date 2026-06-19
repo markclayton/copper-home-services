@@ -86,6 +86,16 @@ const envSchema = z.object({
 
   NEXT_PUBLIC_POSTHOG_KEY: z.string().min(1).optional(),
   NEXT_PUBLIC_POSTHOG_HOST: z.string().url().optional(),
+
+  // Unit economics overrides. Defaults in lib/billing/unit-prices.ts.
+  // All micro-cents (1e-6 USD). Leave unset to use launch-day defaults.
+  COPPER_PRICE_VAPI_PER_MINUTE_MICROCENTS: z.string().optional(),
+  COPPER_PRICE_TWILIO_SMS_PER_SEGMENT_MICROCENTS: z.string().optional(),
+  COPPER_PRICE_ANTHROPIC_SONNET_INPUT_PER_TOKEN_MICROCENTS: z.string().optional(),
+  COPPER_PRICE_ANTHROPIC_SONNET_OUTPUT_PER_TOKEN_MICROCENTS: z.string().optional(),
+  COPPER_PRICE_ANTHROPIC_HAIKU_INPUT_PER_TOKEN_MICROCENTS: z.string().optional(),
+  COPPER_PRICE_ANTHROPIC_HAIKU_OUTPUT_PER_TOKEN_MICROCENTS: z.string().optional(),
+  COPPER_PRICE_OPENAI_EMBEDDING_PER_TOKEN_MICROCENTS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -19,6 +19,7 @@ import {
 import { crawlSite } from "@/lib/kb/crawler";
 import { ingestText } from "@/lib/kb/ingest";
 import { extractKbFromPages } from "@/lib/kb/auto-extract";
+import { recordAnthropicUsage } from "@/lib/billing/unit-events";
 import { generateSmsReply, type SmsHistoryMessage } from "@/lib/ai/sms";
 import { sendSms } from "@/lib/telephony/twilio";
 import { env } from "@/lib/env";
@@ -740,6 +741,14 @@ export const respondToInboundSms = inngest.createFunction(
       }),
     );
 
+    void recordAnthropicUsage({
+      businessId: data.businessId,
+      model: reply.usage.model,
+      inputTokens: reply.usage.inputTokens,
+      outputTokens: reply.usage.outputTokens,
+      sourceId: `sms_reply:${data.twilioSid}`,
+    });
+
     await step.run("send-reply", () =>
       sendSms({
         businessId: data.businessId,
@@ -983,6 +992,16 @@ export const kbCrawl = inngest.createFunction(
             },
           });
           return;
+        }
+
+        if (extraction.usage) {
+          void recordAnthropicUsage({
+            businessId,
+            model: extraction.usage.model,
+            inputTokens: extraction.usage.inputTokens,
+            outputTokens: extraction.usage.outputTokens,
+            sourceId: `kb_extract:${crawlJobId}`,
+          });
         }
 
         // The business step already pre-fills services/faqs from the

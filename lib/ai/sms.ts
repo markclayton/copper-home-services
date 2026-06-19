@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { getLlm } from "./llm";
+import { getLlm, type LlmUsage } from "./llm";
 import type { Business, KnowledgeBase } from "@/lib/db/schema";
 import { industryDescriptor } from "@/lib/industry";
 
@@ -22,6 +22,7 @@ export type SmsReply = {
   body: string;
   flagForOwner: boolean;
   flagReason: string | null;
+  usage: LlmUsage;
 };
 
 type Hours = Record<
@@ -170,5 +171,10 @@ export async function generateSmsReply(args: {
     body: parsed.body.trim(),
     flagForOwner: parsed.flag_for_owner,
     flagReason: parsed.flag_reason?.trim() || null,
+    usage: {
+      model: SMS_MODEL,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    },
   };
 }

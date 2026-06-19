@@ -9,7 +9,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getLlm } from "@/lib/ai/llm";
+import { getLlm, type LlmUsage } from "@/lib/ai/llm";
 
 const EXTRACT_MODEL = "claude-sonnet-4-6";
 
@@ -27,6 +27,7 @@ export type ExtractedFaq = {
 export type Extraction = {
   services: ExtractedService[];
   faqs: ExtractedFaq[];
+  usage: LlmUsage | null;
 };
 
 const EXTRACT_TOOL: Anthropic.Tool = {
@@ -85,7 +86,7 @@ export async function extractKbFromPages(args: {
   pages: Array<{ url: string; title: string; text: string }>;
 }): Promise<Extraction> {
   if (args.pages.length === 0) {
-    return { services: [], faqs: [] };
+    return { services: [], faqs: [], usage: null };
   }
 
   const corpus = args.pages
@@ -109,15 +110,22 @@ export async function extractKbFromPages(args: {
     ],
   });
 
+  const usage: LlmUsage = {
+    model: EXTRACT_MODEL,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+  };
+
   const toolUse = response.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
   );
   if (!toolUse) {
-    return { services: [], faqs: [] };
+    return { services: [], faqs: [], usage };
   }
-  const input = toolUse.input as Extraction;
+  const input = toolUse.input as Pick<Extraction, "services" | "faqs">;
   return {
     services: Array.isArray(input.services) ? input.services.slice(0, 12) : [],
     faqs: Array.isArray(input.faqs) ? input.faqs.slice(0, 8) : [],
+    usage,
   };
 }

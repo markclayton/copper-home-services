@@ -13,6 +13,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { kbChunks } from "@/lib/db/schema";
+import { recordEmbeddingUsage } from "@/lib/billing/unit-events";
 import { embedOne, vectorLiteral } from "./embeddings";
 
 export type RetrievedChunk = {
@@ -34,7 +35,11 @@ export async function searchKnowledge(args: {
   if (!trimmed) return [];
   const k = args.k ?? DEFAULT_K;
 
-  const { vector } = await embedOne(trimmed);
+  const { vector, tokens } = await embedOne(trimmed);
+  void recordEmbeddingUsage({
+    businessId: args.businessId,
+    tokens,
+  });
   const literal = vectorLiteral(vector);
 
   // Drizzle's `sql` template tags interpolate values safely.

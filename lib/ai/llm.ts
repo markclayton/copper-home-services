@@ -31,6 +31,12 @@ export type CallSummary = {
   ownerLine: string;
 };
 
+export type LlmUsage = {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+};
+
 const SUMMARIZE_TOOL: Anthropic.Tool = {
   name: "record_call_summary",
   description:
@@ -90,7 +96,7 @@ function transcriptToText(messages: VapiTranscriptMessage[]): string {
 
 export async function summarizeCall(
   transcript: VapiTranscriptMessage[] | string,
-): Promise<CallSummary> {
+): Promise<{ summary: CallSummary; usage: LlmUsage }> {
   const client = getLlm();
   const text =
     typeof transcript === "string" ? transcript : transcriptToText(transcript);
@@ -116,5 +122,12 @@ export async function summarizeCall(
   if (!toolUse) {
     throw new Error("LLM did not return a tool call.");
   }
-  return toolUse.input as CallSummary;
+  return {
+    summary: toolUse.input as CallSummary,
+    usage: {
+      model: SUMMARY_MODEL,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    },
+  };
 }
