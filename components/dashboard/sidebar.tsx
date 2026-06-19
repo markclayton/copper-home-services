@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
+  Headphones,
   Home,
   MessageSquareText,
   PhoneCall,
@@ -19,6 +20,7 @@ const NAV = [
   { href: "/dashboard/bookings", label: "Bookings", icon: CalendarDays },
   { href: "/dashboard/reviews", label: "Reviews", icon: Star },
   { href: "/dashboard/messages", label: "Messages", icon: MessageSquareText },
+  { href: "/dashboard/test", label: "Try it", icon: Headphones },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
   { href: "/dashboard/billing", label: "Billing", icon: Receipt },
 ];

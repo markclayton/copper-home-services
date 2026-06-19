@@ -31,6 +31,10 @@ const envSchema = z.object({
   VAPI_ORG_ID: z.string().min(1).optional(),
   VAPI_ASSISTANT_TEMPLATE_ID: z.string().min(1).optional(),
   VAPI_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Vapi publishable key, safe to expose to the browser. Used by the
+   *  in-dashboard test-call widget so operators can place a WebRTC call to
+   *  their own assistant without dialing the phone number. */
+  NEXT_PUBLIC_VAPI_PUBLIC_KEY: z.string().min(1).optional(),
 
   TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
   TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
