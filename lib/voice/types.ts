@@ -76,17 +76,33 @@ export type VapiStatusUpdate = {
 export type VapiChattyUpdate = {
   type:
     | "conversation-update"
-    | "transcript"
     | "speech-update"
     | "model-output"
     | "hang";
   call?: VapiCallSummary;
 };
 
+/**
+ * Streamed during the call. Vapi emits partials with the same role until
+ * a final lands — we only persist finals on the server side to keep
+ * write volume sane.
+ */
+export type VapiTranscriptStreamMessage = {
+  type: "transcript";
+  call: VapiCallSummary;
+  transcript: string;
+  role: "user" | "assistant" | "system";
+  transcriptType: "partial" | "final";
+  /** Some Vapi versions emit this on transcript events; we use it as the
+   *  authoritative time_offset_ms for ordering and dedup. */
+  secondsFromStart?: number;
+};
+
 export type VapiServerMessage =
   | VapiEndOfCallReport
   | VapiToolCallsMessage
   | VapiStatusUpdate
+  | VapiTranscriptStreamMessage
   | VapiChattyUpdate;
 
 export type VapiServerPayload = {

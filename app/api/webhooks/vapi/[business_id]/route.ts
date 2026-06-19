@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   businesses,
+  callTranscriptSegments,
   calls,
   contacts,
   events,
@@ -30,6 +31,7 @@ import type {
   VapiStatusUpdate,
   VapiToolCallsMessage,
   VapiToolResponse,
+  VapiTranscriptStreamMessage,
 } from "@/lib/voice/types";
 
 const UUID_RE =
@@ -90,8 +92,10 @@ export async function POST(
     case "status-update":
       await handleStatusUpdate(business, message);
       return NextResponse.json({ ok: true });
-    case "conversation-update":
     case "transcript":
+      await handleTranscriptStream(business, message);
+      return NextResponse.json({ ok: true });
+    case "conversation-update":
     case "speech-update":
     case "model-output":
     case "hang":
@@ -130,6 +134,79 @@ async function handleStatusUpdate(
     type: `vapi.status-update.${message.status}`,
     payload: message as unknown as Record<string, unknown>,
   });
+}
+
+/**
+ * Live transcript stream. Vapi emits partials with the same role until a
+ * final lands — we persist finals only. The dashboard polls for new
+ * segments at 1.5s while a call is in_progress so the operator sees what
+ * the caller said in something close to real time.
+ *
+ * Idempotent on (call_id, time_offset_ms, role) — if Vapi resends the
+ * same final transcript, the second insert no-ops via ON CONFLICT.
+ */
+async function handleTranscriptStream(
+  business: Business,
+  message: VapiTranscriptStreamMessage,
+) {
+  if (message.transcriptType !== "final") return;
+  const text = (message.transcript ?? "").trim();
+  if (!text) return;
+
+  const vapiCallId = message.call?.id;
+  if (!vapiCallId) return;
+
+  // Ensure a calls row exists so we have an FK target. The end-of-call
+  // handler will fill in metadata; we just need the id locked in.
+  const [existing] = await db
+    .select({ id: calls.id })
+    .from(calls)
+    .where(eq(calls.vapiCallId, vapiCallId))
+    .limit(1);
+
+  let callId: string;
+  if (existing) {
+    callId = existing.id;
+  } else {
+    const [created] = await db
+      .insert(calls)
+      .values({
+        businessId: business.id,
+        vapiCallId,
+        direction:
+          message.call?.type === "outboundPhoneCall" ? "outbound" : "inbound",
+        status: "in_progress",
+        fromNumber: message.call?.customer?.number ?? null,
+        toNumber: message.call?.phoneNumber?.number ?? null,
+        startedAt: message.call?.startedAt
+          ? new Date(message.call.startedAt)
+          : new Date(),
+      })
+      .returning({ id: calls.id });
+    callId = created.id;
+  }
+
+  const timeOffsetMs =
+    typeof message.secondsFromStart === "number"
+      ? Math.max(0, Math.round(message.secondsFromStart * 1000))
+      : 0;
+
+  await db
+    .insert(callTranscriptSegments)
+    .values({
+      businessId: business.id,
+      callId,
+      role: message.role,
+      text,
+      timeOffsetMs,
+    })
+    .onConflictDoNothing({
+      target: [
+        callTranscriptSegments.callId,
+        callTranscriptSegments.timeOffsetMs,
+        callTranscriptSegments.role,
+      ],
+    });
 }
 
 async function upsertContact(

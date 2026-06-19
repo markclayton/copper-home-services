@@ -13,6 +13,17 @@ export function CallStatusBadge({ status }: { status: Call["status"] }) {
     no_answer: "outline",
     voicemail: "outline",
   };
+  if (status === "in_progress") {
+    return (
+      <Badge
+        variant="outline"
+        className="border-red-500/40 text-red-600 dark:text-red-400 inline-flex items-center gap-1.5"
+      >
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+        live
+      </Badge>
+    );
+  }
   return <Badge variant={variant[status]}>{status.replace("_", " ")}</Badge>;
 }
 

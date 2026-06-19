@@ -18,6 +18,7 @@ import {
 import {
   CallIntentBadge,
   CallOutcomeBadge,
+  CallStatusBadge,
   EmergencyBadge,
 } from "@/components/dashboard/badges";
 import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
@@ -202,6 +203,9 @@ export default async function TodayPage() {
                         </p>
                       )}
                       <div className="flex flex-wrap gap-1 mt-1.5">
+                        {call.status === "in_progress" && (
+                          <CallStatusBadge status={call.status} />
+                        )}
                         <EmergencyBadge isEmergency={call.isEmergency} />
                         <CallIntentBadge intent={call.intent} />
                         <CallOutcomeBadge outcome={call.outcome} />

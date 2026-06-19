@@ -539,6 +539,44 @@ export const appointmentChangeVerifications = pgTable(
 ).enableRLS();
 
 /**
+ * Per-utterance transcript segments captured live during a Vapi call.
+ * Only finalized transcripts get persisted (partials would 10x the
+ * write volume). Read by the dashboard live-transcript polling
+ * endpoint while status='in_progress'. After end-of-call-report, the
+ * canonical transcript also lives on calls.transcript jsonb; segments
+ * win when both are present.
+ */
+export const callTranscriptSegments = pgTable(
+  "call_transcript_segments",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    businessId: uuid()
+      .notNull()
+      .references(() => businesses.id, { onDelete: "cascade" }),
+    callId: uuid()
+      .notNull()
+      .references(() => calls.id, { onDelete: "cascade" }),
+    role: text().notNull(),
+    text: text().notNull(),
+    timeOffsetMs: integer().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("call_transcript_segments_call_idx").on(t.callId, t.timeOffsetMs),
+    unique("call_transcript_segments_dedupe_unique").on(
+      t.callId,
+      t.timeOffsetMs,
+      t.role,
+    ),
+    pgPolicy("owners_select_own_call_transcript_segments", {
+      for: "select",
+      to: authenticatedRole,
+      using: businessOwnerCheck,
+    }),
+  ],
+).enableRLS();
+
+/**
  * RAG-side knowledge: uploaded documents and crawled website pages. Each
  * row is one "source" — its text gets chunked into kb_chunks and embedded.
  * The structured knowledge_base table is unchanged and still the
@@ -660,3 +698,6 @@ export type KbChunk = typeof kbChunks.$inferSelect;
 export type NewKbChunk = typeof kbChunks.$inferInsert;
 export type KbCrawlJob = typeof kbCrawlJobs.$inferSelect;
 export type NewKbCrawlJob = typeof kbCrawlJobs.$inferInsert;
+export type CallTranscriptSegment = typeof callTranscriptSegments.$inferSelect;
+export type NewCallTranscriptSegment =
+  typeof callTranscriptSegments.$inferInsert;

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import {
   Card,
   CardContent,
@@ -18,8 +18,9 @@ import {
   EmergencyBadge,
 } from "@/components/dashboard/badges";
 import { FlagCallButton } from "@/components/dashboard/flag-call-button";
+import { LiveTranscript } from "@/components/dashboard/live-transcript";
 import { db } from "@/lib/db";
-import { events } from "@/lib/db/schema";
+import { callTranscriptSegments, events } from "@/lib/db/schema";
 import { getCall, requireBusiness } from "@/lib/db/queries";
 import {
   formatDateTime,
@@ -39,6 +40,22 @@ export default async function CallDetailPage({
   if (!call) notFound();
 
   const transcript = (call.transcript ?? []) as VapiTranscriptMessage[];
+
+  // Pull any live segments captured during the call. When status is
+  // 'in_progress' the LiveTranscript component will keep polling and
+  // append new ones. When the call is done, segments are the higher-
+  // fidelity source and supersede the jsonb canonical transcript.
+  const segments = await db
+    .select({
+      id: callTranscriptSegments.id,
+      role: callTranscriptSegments.role,
+      text: callTranscriptSegments.text,
+      timeOffsetMs: callTranscriptSegments.timeOffsetMs,
+      createdAt: callTranscriptSegments.createdAt,
+    })
+    .from(callTranscriptSegments)
+    .where(eq(callTranscriptSegments.callId, id))
+    .orderBy(asc(callTranscriptSegments.timeOffsetMs));
 
   const [flagged] = await db
     .select({ id: events.id })
@@ -136,7 +153,34 @@ export default async function CallDetailPage({
           <CardTitle className="text-base">Transcript</CardTitle>
         </CardHeader>
         <CardContent>
-          {transcript.length === 0 ? (
+          {call.status === "in_progress" ? (
+            <LiveTranscript
+              callId={call.id}
+              initialSegments={segments.map((s) => ({
+                id: s.id,
+                role: s.role,
+                text: s.text,
+                timeOffsetMs: s.timeOffsetMs,
+                createdAt: s.createdAt.toISOString(),
+              }))}
+            />
+          ) : segments.length > 0 ? (
+            <div className="flex flex-col gap-3 text-sm">
+              {segments.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex flex-col sm:flex-row gap-1 sm:gap-3"
+                >
+                  <div className="sm:w-20 shrink-0 text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {s.role}
+                  </div>
+                  <div className="flex-1 whitespace-pre-wrap leading-relaxed">
+                    {s.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : transcript.length === 0 ? (
             <p className="text-sm text-muted-foreground">No transcript available.</p>
           ) : (
             <div className="flex flex-col gap-3 text-sm">
