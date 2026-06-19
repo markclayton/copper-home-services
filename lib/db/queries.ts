@@ -8,6 +8,7 @@ import {
   contacts,
   events,
   messages,
+  ownerMessages,
   reviewRequests,
   type Appointment,
   type Business,
@@ -695,4 +696,254 @@ export async function getConversation(
     .filter((f) => f.reason);
 
   return { contact, messages: msgs, flagReasons };
+}
+
+/**
+ * Unified inbox: recent calls + SMS threads (rolled up per contact) +
+ * voicemail-style owner_messages, merged into a single timestamp-sorted
+ * feed. The dashboard renders this as the operator's primary triage view.
+ *
+ * Three parallel queries to keep the wall-clock down. The SMS rollup
+ * follows the same pattern as getTodayConversations — fetch enough rows
+ * to cover the deduped contact count, then group in JS.
+ */
+export type InboxItem =
+  | {
+      kind: "call";
+      key: string;
+      at: Date;
+      callId: string;
+      contactName: string | null;
+      contactPhone: string | null;
+      summary: string | null;
+      intent: Call["intent"];
+      outcome: Call["outcome"];
+      isEmergency: boolean;
+      status: Call["status"];
+    }
+  | {
+      kind: "sms";
+      key: string;
+      at: Date;
+      contactId: string | null;
+      contactName: string | null;
+      contactPhone: string | null;
+      lastBody: string;
+      lastDirection: "inbound" | "outbound";
+      lastSender: "customer" | "ai" | "owner";
+      needsReply: boolean;
+      flagged: boolean;
+    }
+  | {
+      kind: "message";
+      key: string;
+      at: Date;
+      ownerMessageId: string;
+      callerName: string | null;
+      callerPhone: string | null;
+      subject: string | null;
+      message: string;
+      status: "new" | "acknowledged" | "resolved";
+      callId: string | null;
+    };
+
+export async function getInboxItems(
+  businessId: string,
+  limit = 50,
+): Promise<InboxItem[]> {
+  const [recentCalls, recentMessages, recentOwnerMessages, flaggedSmsRows] =
+    await Promise.all([
+      db
+        .select({
+          id: calls.id,
+          status: calls.status,
+          intent: calls.intent,
+          outcome: calls.outcome,
+          isEmergency: calls.isEmergency,
+          summary: calls.summary,
+          fromNumber: calls.fromNumber,
+          startedAt: calls.startedAt,
+          createdAt: calls.createdAt,
+          contactName: contacts.name,
+          contactPhone: contacts.phone,
+        })
+        .from(calls)
+        .leftJoin(contacts, eq(calls.contactId, contacts.id))
+        .where(eq(calls.businessId, businessId))
+        .orderBy(desc(calls.createdAt))
+        .limit(limit),
+      db
+        .select({
+          id: messages.id,
+          contactId: messages.contactId,
+          direction: messages.direction,
+          sender: messages.sender,
+          body: messages.body,
+          sentAt: messages.sentAt,
+          createdAt: messages.createdAt,
+          fromNumber: messages.fromNumber,
+          toNumber: messages.toNumber,
+          contactName: contacts.name,
+          contactPhone: contacts.phone,
+        })
+        .from(messages)
+        .leftJoin(contacts, eq(messages.contactId, contacts.id))
+        .where(eq(messages.businessId, businessId))
+        .orderBy(desc(messages.createdAt))
+        .limit(limit * 6),
+      db
+        .select()
+        .from(ownerMessages)
+        .where(eq(ownerMessages.businessId, businessId))
+        .orderBy(desc(ownerMessages.createdAt))
+        .limit(limit),
+      db
+        .select({
+          phone: sql<string>`${events.payload}->>'fromNumber'`,
+        })
+        .from(events)
+        .where(
+          and(
+            eq(events.businessId, businessId),
+            eq(events.type, "sms.flagged_for_owner"),
+            gte(events.createdAt, sql`now() - interval '7 days'`),
+          ),
+        ),
+    ]);
+
+  const items: InboxItem[] = [];
+
+  for (const c of recentCalls) {
+    const at = c.startedAt ?? c.createdAt;
+    items.push({
+      kind: "call",
+      key: `call:${c.id}`,
+      at,
+      callId: c.id,
+      contactName: c.contactName,
+      contactPhone: c.contactPhone ?? c.fromNumber,
+      summary: c.summary,
+      intent: c.intent,
+      outcome: c.outcome,
+      isEmergency: c.isEmergency,
+      status: c.status,
+    });
+  }
+
+  const flaggedPhones = new Set(
+    flaggedSmsRows.map((f) => f.phone).filter((p): p is string => !!p),
+  );
+  const smsByKey = new Map<string, Extract<InboxItem, { kind: "sms" }>>();
+  for (const m of recentMessages) {
+    const key =
+      m.contactId ??
+      (m.direction === "inbound" ? m.fromNumber : m.toNumber) ??
+      m.id;
+    const at = m.sentAt ?? m.createdAt;
+    const existing = smsByKey.get(key);
+    if (existing) {
+      if (at > existing.at) {
+        existing.at = at;
+        existing.lastBody = m.body;
+        existing.lastDirection = m.direction;
+        existing.lastSender = m.sender;
+      }
+      continue;
+    }
+    const phone =
+      m.contactPhone ?? (m.direction === "inbound" ? m.fromNumber : m.toNumber);
+    smsByKey.set(key, {
+      kind: "sms",
+      key: `sms:${key}`,
+      at,
+      contactId: m.contactId,
+      contactName: m.contactName,
+      contactPhone: phone,
+      lastBody: m.body,
+      lastDirection: m.direction,
+      lastSender: m.sender,
+      needsReply: false, // computed below once we know the latest
+      flagged: !!(phone && flaggedPhones.has(phone)),
+    });
+  }
+  for (const sms of smsByKey.values()) {
+    // "Needs reply" = last message was the customer talking. If the AI or
+    // owner already replied, the conversation is settled until next inbound.
+    sms.needsReply = sms.lastSender === "customer";
+    items.push(sms);
+  }
+
+  for (const m of recentOwnerMessages) {
+    items.push({
+      kind: "message",
+      key: `message:${m.id}`,
+      at: m.createdAt,
+      ownerMessageId: m.id,
+      callerName: m.callerName,
+      callerPhone: m.callerPhone,
+      subject: m.subject,
+      message: m.message,
+      status: m.status,
+      callId: m.callId,
+    });
+  }
+
+  items.sort((a, b) => b.at.getTime() - a.at.getTime());
+  return items.slice(0, limit);
+}
+
+export type UnreadCounts = {
+  newOwnerMessages: number;
+  needsReplySmsThreads: number;
+};
+
+/**
+ * Lightweight rollup for the sidebar badge. Counts items the operator
+ * should know about without rendering the full feed. Cheap.
+ */
+export async function getInboxCounts(
+  businessId: string,
+): Promise<UnreadCounts> {
+  const [newMsgRows, recentSmsRows] = await Promise.all([
+    db
+      .select({ id: ownerMessages.id })
+      .from(ownerMessages)
+      .where(
+        and(
+          eq(ownerMessages.businessId, businessId),
+          eq(ownerMessages.status, "new"),
+        ),
+      )
+      .limit(100),
+    db
+      .select({
+        contactId: messages.contactId,
+        sender: messages.sender,
+        direction: messages.direction,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(eq(messages.businessId, businessId))
+      .orderBy(desc(messages.createdAt))
+      .limit(200),
+  ]);
+
+  const lastSenderByContact = new Map<string, typeof recentSmsRows[number]>();
+  for (const m of recentSmsRows) {
+    const key = m.contactId ?? "";
+    if (!key) continue;
+    const existing = lastSenderByContact.get(key);
+    if (!existing || m.createdAt > existing.createdAt) {
+      lastSenderByContact.set(key, m);
+    }
+  }
+  let needsReply = 0;
+  for (const m of lastSenderByContact.values()) {
+    if (m.sender === "customer") needsReply += 1;
+  }
+
+  return {
+    newOwnerMessages: newMsgRows.length,
+    needsReplySmsThreads: needsReply,
+  };
 }

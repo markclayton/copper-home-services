@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Headphones,
   Home,
+  Inbox,
   MessageSquareText,
   PhoneCall,
   Receipt,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/dashboard", label: "Today", icon: Home },
+  { href: "/dashboard/inbox", label: "Inbox", icon: Inbox },
   { href: "/dashboard/calls", label: "Calls", icon: PhoneCall },
   { href: "/dashboard/bookings", label: "Bookings", icon: CalendarDays },
   { href: "/dashboard/reviews", label: "Reviews", icon: Star },
