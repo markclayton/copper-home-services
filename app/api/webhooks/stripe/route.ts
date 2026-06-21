@@ -15,6 +15,7 @@ import {
   PROBLEM_STRIPE_STATUSES,
   teardownDateFromNow,
 } from "@/lib/billing/lifecycle";
+import { resumeAssistantFromOverage } from "@/lib/voice/pause";
 import { inngest } from "@/lib/jobs/client";
 import { recordWebhookEvent } from "@/lib/db/webhook-idempotency";
 import { reportError } from "@/lib/observability";
@@ -228,6 +229,7 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
     update.planTier = tierFromStripeMetadata(metaPlan);
   }
 
+  const wasTrialing = business.stripeSubscriptionStatus === "trialing";
   if (ACTIVE_STRIPE_STATUSES.has(sub.status)) {
     // Reactivation path: was paused → going live again. Clear any pending
     // teardown so the cron doesn't wipe them next morning.
@@ -258,6 +260,23 @@ async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
       tenantStatus: update.status ?? business.status,
     },
   });
+
+  // Trial → active means the card actually charged. If we paused the
+  // assistant during the trial for overage, restore it now. The deploy
+  // call is a no-op when the assistant config hasn't drifted.
+  if (wasTrialing && sub.status === "active") {
+    const result = await resumeAssistantFromOverage({
+      ...business,
+      stripeSubscriptionStatus: sub.status,
+    });
+    if (!result.ok) {
+      await db.insert(events).values({
+        businessId: business.id,
+        type: "voice.resume_failed",
+        payload: { reason: result.reason ?? "unknown" },
+      });
+    }
+  }
 }
 
 async function handleSubscriptionDeleted(sub: Stripe.Subscription) {

@@ -124,7 +124,7 @@ export const COMPETITORS: readonly Competitor[] = [
       "You want the AI to book the appointment, not just take a message — and you want the same product to grow with you from Solo to Business.",
     rows: [
       { feature: "Pricing (entry)", copper: "$79/mo Solo (no free tier)", competitor: "Free tier + $19/mo paid" },
-      { feature: "Free tier", copper: "No — 7-day card-on-file trial", competitor: "Yes, limited" },
+      { feature: "Free tier", copper: "No — 3-day card-on-file trial", competitor: "Yes, limited" },
       { feature: "Calendar booking", copper: "Books into Google Calendar live on the call", competitor: "Mostly takes-a-message" },
       { feature: "SMS confirmation + A2P consent", copper: "Built in", competitor: "Limited" },
       { feature: "Document upload to KB", copper: "PDF + DOCX + website crawl", competitor: "Manual FAQs" },

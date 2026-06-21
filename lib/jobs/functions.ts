@@ -20,6 +20,11 @@ import { crawlSite } from "@/lib/kb/crawler";
 import { ingestText } from "@/lib/kb/ingest";
 import { extractKbFromPages } from "@/lib/kb/auto-extract";
 import { recordAnthropicUsage } from "@/lib/billing/unit-events";
+import {
+  assertLlmBudgetAvailable,
+  LlmBudgetExceededError,
+} from "@/lib/billing/llm-budget";
+import { type PlanTier } from "@/lib/billing/plans";
 import { generateSmsReply, type SmsHistoryMessage } from "@/lib/ai/sms";
 import { sendSms } from "@/lib/telephony/twilio";
 import { env } from "@/lib/env";
@@ -732,14 +737,40 @@ export const respondToInboundSms = inngest.createFunction(
       return { skipped: "ai paused for this contact" };
     }
 
-    const reply = await step.run("generate-reply", () =>
-      generateSmsReply({
+    const reply = await step.run("generate-reply", async () => {
+      try {
+        await assertLlmBudgetAvailable({
+          businessId: data.businessId,
+          planTier: business.planTier as PlanTier,
+          stripeSubscriptionStatus: business.stripeSubscriptionStatus,
+        });
+      } catch (err) {
+        if (err instanceof LlmBudgetExceededError) {
+          await db.insert(events).values({
+            businessId: data.businessId,
+            type: "sms.reply_skipped_budget",
+            payload: {
+              messageId: data.messageId,
+              spent: err.spentMicroCents,
+              cap: err.capMicroCents,
+              reason: err.reason,
+            },
+          });
+          return null;
+        }
+        throw err;
+      }
+      return generateSmsReply({
         business,
         kb,
         history: ctx.history,
         newMessage: data.body,
-      }),
-    );
+      });
+    });
+
+    if (!reply) {
+      return { skipped: "llm budget exceeded" };
+    }
 
     void recordAnthropicUsage({
       businessId: data.businessId,
@@ -920,6 +951,35 @@ export const kbCrawl = inngest.createFunction(
       }
     });
 
+    // Tighter caps while the tenant is trialing — keeps a bad actor from
+    // pointing the crawler at a 30-page site to burn OpenAI embedding +
+    // Anthropic extraction $ on us before the card actually charges. The
+    // assertLlmBudgetAvailable check below covers the runaway case
+    // regardless; this just trims expected trial spend.
+    const TRIAL_KB_PAGE_LIMIT = 5;
+    if (crawl.ok) {
+      const [tenant] = await db
+        .select({
+          stripeSubscriptionStatus: businesses.stripeSubscriptionStatus,
+        })
+        .from(businesses)
+        .where(eq(businesses.id, businessId))
+        .limit(1);
+      if (
+        tenant?.stripeSubscriptionStatus === "trialing" &&
+        crawl.result.pages.length > TRIAL_KB_PAGE_LIMIT
+      ) {
+        const dropped = crawl.result.pages.length - TRIAL_KB_PAGE_LIMIT;
+        crawl.result.pages = crawl.result.pages.slice(0, TRIAL_KB_PAGE_LIMIT);
+        crawl.result.skipped += dropped;
+        await db.insert(events).values({
+          businessId,
+          type: "kb.crawl.trial_capped",
+          payload: { keptPages: TRIAL_KB_PAGE_LIMIT, droppedPages: dropped },
+        });
+      }
+    }
+
     if (!crawl.ok || crawl.result.pages.length === 0) {
       await step.run("mark-failed", async () => {
         await db
@@ -972,10 +1032,36 @@ export const kbCrawl = inngest.createFunction(
     if (autoExtract) {
       await step.run("auto-extract", async () => {
         const [biz] = await db
-          .select({ name: businesses.name })
+          .select({
+            name: businesses.name,
+            planTier: businesses.planTier,
+            stripeSubscriptionStatus: businesses.stripeSubscriptionStatus,
+          })
           .from(businesses)
           .where(eq(businesses.id, businessId))
           .limit(1);
+
+        try {
+          await assertLlmBudgetAvailable({
+            businessId,
+            planTier: (biz?.planTier ?? "default") as PlanTier,
+            stripeSubscriptionStatus: biz?.stripeSubscriptionStatus,
+          });
+        } catch (err) {
+          if (err instanceof LlmBudgetExceededError) {
+            await db.insert(events).values({
+              businessId,
+              type: "kb.auto_extract.skipped_budget",
+              payload: {
+                spent: err.spentMicroCents,
+                cap: err.capMicroCents,
+                reason: err.reason,
+              },
+            });
+            return;
+          }
+          throw err;
+        }
 
         let extraction;
         try {

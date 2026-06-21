@@ -15,13 +15,23 @@ import {
   recordAnthropicUsage,
   recordVoiceMinutes,
 } from "@/lib/billing/unit-events";
+import {
+  assertLlmBudgetAvailable,
+  LlmBudgetExceededError,
+} from "@/lib/billing/llm-budget";
 import { handleToolCall, type ToolCtx } from "@/lib/voice/tool-handlers";
 import { inngest } from "@/lib/jobs/client";
-import { getMinuteCap, type PlanTier } from "@/lib/billing/plans";
+import {
+  getMinuteCap,
+  isTrialing,
+  TRIAL_VOICE_MINUTE_CAP,
+  type PlanTier,
+} from "@/lib/billing/plans";
 import {
   crossedThreshold,
   getMinutesUsedThisCycle,
 } from "@/lib/billing/usage";
+import { pauseAssistantForOverage } from "@/lib/voice/pause";
 import { sendSms } from "@/lib/telephony/twilio";
 import { sendEmail, isEmailConfigured } from "@/lib/notifications/email";
 import { renderUsageAlert } from "@/lib/notifications/templates";
@@ -277,6 +287,11 @@ async function handleEndOfCallReport(
 
   if (transcriptText) {
     try {
+      await assertLlmBudgetAvailable({
+        businessId: business.id,
+        planTier: business.planTier as PlanTier,
+        stripeSubscriptionStatus: business.stripeSubscriptionStatus,
+      });
       const { summary: result, usage } = await summarizeCall(transcriptText);
       summaryText = summaryText ?? result.summary;
       intent = result.intent;
@@ -293,7 +308,10 @@ async function handleEndOfCallReport(
     } catch (err) {
       await db.insert(events).values({
         businessId: business.id,
-        type: "summarize.error",
+        type:
+          err instanceof LlmBudgetExceededError
+            ? "summarize.skipped_budget"
+            : "summarize.error",
         payload: { message: err instanceof Error ? err.message : String(err) },
       });
     }
@@ -391,6 +409,48 @@ async function handleEndOfCallReport(
       sourceId: callPayload.id,
     });
     await checkVoiceUsageAlerts(business, durationSec);
+    await enforceTrialVoiceCap(business);
+  }
+}
+
+/**
+ * Hard-block trial tenants once they cross the trial voice cap. Paid
+ * tenants stay on the soft-alert path above — the cap only bites while
+ * the Stripe sub is in `trialing`. Resume happens automatically when
+ * the subscription flips to `active` (see lib/voice/pause.ts +
+ * app/api/webhooks/stripe/route.ts handleSubscriptionUpdated).
+ */
+async function enforceTrialVoiceCap(business: Business) {
+  if (!isTrialing(business.stripeSubscriptionStatus)) return;
+  const minutes = await getMinutesUsedThisCycle(business.id);
+  if (minutes < TRIAL_VOICE_MINUTE_CAP) return;
+
+  const result = await pauseAssistantForOverage(business, "trial_voice_cap");
+  if (!result.ok) {
+    await db.insert(events).values({
+      businessId: business.id,
+      type: "voice.pause_failed",
+      payload: { reason: result.reason ?? "unknown", minutes },
+    });
+    return;
+  }
+
+  // Best-effort owner notification — they can fix this by upgrading
+  // (i.e. completing the trial early) from the billing page.
+  if (business.ownerPhone) {
+    try {
+      await sendSms({
+        businessId: business.id,
+        to: business.ownerPhone,
+        body:
+          `Copper: your trial voice cap (${TRIAL_VOICE_MINUTE_CAP} min) was ` +
+          `reached. Inbound calls are paused. Subscribe from your dashboard ` +
+          `to resume immediately.`,
+        bypassQuota: true,
+      });
+    } catch {
+      // Already logged via sendSms's own failure path.
+    }
   }
 }
 

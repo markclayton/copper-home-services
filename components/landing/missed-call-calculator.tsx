@@ -189,7 +189,7 @@ function Calculator({ isAuthed }: { isAuthed: boolean }) {
               prominent
             />
             <p className="text-xs text-ink-500 mt-2">
-              No setup fee · 7-day trial · Cancel anytime
+              No setup fee · 3-day trial · Cancel anytime
             </p>
           </div>
         </div>

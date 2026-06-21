@@ -62,7 +62,7 @@ function ComparisonHero({
           <CTAButton
             href={isAuthed ? "/dashboard" : "/auth/sign-up"}
             label={
-              isAuthed ? "Open your dashboard" : "Try Copper free for 7 days"
+              isAuthed ? "Open your dashboard" : "Try Copper free for 3 days"
             }
             prominent
           />

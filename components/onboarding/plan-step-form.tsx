@@ -205,10 +205,10 @@ export function PlanStepForm({
               )}
             </div>
             <div className="flex-1">
-              <div className="font-medium">Start 7-day free trial</div>
+              <div className="font-medium">Start 3-day free trial</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Try Copper free for a week. Card required, but you won&apos;t
-                be charged until day 7. Cancel any time.
+                Try Copper free for 3 days. Card required, but you won&apos;t
+                be charged until day 3. Cancel any time.
               </p>
               <div className="text-xs mt-2">
                 Then <span className="font-medium">{selectedPrice}</span>

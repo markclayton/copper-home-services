@@ -84,9 +84,14 @@ export function resolveSelfServePrice(plan: SelfServePlan): string {
 
 /**
  * New-tenant signup checkout — final step of the onboarding wizard.
- * Includes a 7-day free trial with card up front. The card isn't charged
- * until day 7, but Stripe collects it now to filter for serious customers.
+ * Includes a short free trial with card up front. The card isn't charged
+ * until the trial ends, but Stripe collects it now to filter for serious
+ * customers. The trial window is intentionally short — long enough to let
+ * a real owner take a few calls, short enough that someone abusing the
+ * sandbox can't accumulate a meaningful vendor bill.
  */
+export const TRIAL_PERIOD_DAYS = 3;
+
 export async function createOnboardingCheckout(args: {
   customerId: string;
   businessId: string;
@@ -104,7 +109,7 @@ export async function createOnboardingCheckout(args: {
     cancel_url: `${env.APP_URL}/onboard/plan?status=canceled`,
     subscription_data: {
       metadata: { businessId: args.businessId, plan: args.plan },
-      ...(args.withTrial ? { trial_period_days: 7 } : {}),
+      ...(args.withTrial ? { trial_period_days: TRIAL_PERIOD_DAYS } : {}),
     },
     metadata: { businessId: args.businessId, flow: "new_tenant", plan: args.plan },
   });

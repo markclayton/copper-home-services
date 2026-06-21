@@ -923,7 +923,7 @@ export function Pricing({ isAuthed }: { isAuthed: boolean }) {
       features: [
         "Dedicated AI receptionist",
         "Local phone number included",
-        "Up to 500 voice minutes/month",
+        "500 voice minutes/month (fair use)",
         "Google Calendar booking",
         "Automated review requests",
         "SMS + email owner alerts",
@@ -940,7 +940,7 @@ export function Pricing({ isAuthed }: { isAuthed: boolean }) {
         "When the phone rings a hundred times a month and one person can't catch them all.",
       features: [
         "Everything in Solo",
-        "Up to 2,000 voice minutes/month",
+        "2,000 voice minutes/month (fair use)",
         "Built for higher call volume",
         "Priority email support",
       ],
@@ -981,6 +981,11 @@ export function Pricing({ isAuthed }: { isAuthed: boolean }) {
           </h2>
           <p className="text-ink-700 mt-3">
             No setup fee. Cancel anytime.
+          </p>
+          <p className="text-ink-500 mt-2 text-xs">
+            Voice-minute allowances are fair-use. Sustained use beyond the
+            tier ceiling may require upgrading; we&apos;ll always reach out
+            before any action.
           </p>
         </Reveal>
 
