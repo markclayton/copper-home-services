@@ -13,7 +13,11 @@ export default function PrivacyPage() {
       updated="May 2026"
     >
       <p className="text-base">
-        If you have a question that isn&apos;t covered, email{" "}
+        For an operational summary of how we handle data — encryption,
+        access controls, sub-processors, incident response, and the
+        shared-responsibility model — see our{" "}
+        <a href="/security">Security page</a>. If you have a question that
+        isn&apos;t covered, email{" "}
         <a href="mailto:info@joincopper.io">info@joincopper.io</a>.
       </p>
 

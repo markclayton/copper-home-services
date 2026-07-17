@@ -52,6 +52,7 @@ export async function updateSession(request: NextRequest) {
     path === "/" ||
     path === "/privacy" ||
     path === "/terms" ||
+    path === "/security" ||
     path === "/contact" ||
     path === "/contact-sales" ||
     path.startsWith("/login") ||
