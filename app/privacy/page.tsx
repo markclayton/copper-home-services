@@ -13,9 +13,7 @@ export default function PrivacyPage() {
       updated="May 2026"
     >
       <p className="text-base">
-        This is a working draft of our privacy policy. We&apos;ll have it
-        reviewed by counsel before we&apos;re open to the general public. If
-        you have a question that isn&apos;t covered, email{" "}
+        If you have a question that isn&apos;t covered, email{" "}
         <a href="mailto:info@joincopper.io">info@joincopper.io</a>.
       </p>
 

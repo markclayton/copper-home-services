@@ -13,9 +13,7 @@ export default function TermsPage() {
       updated="May 2026"
     >
       <p className="text-base">
-        This is a working draft. We&apos;ll have it reviewed by counsel
-        before opening to the general public. By using Copper you agree to
-        the terms below.
+        By using Copper you agree to the terms below.
       </p>
 
       <h2>What Copper does</h2>

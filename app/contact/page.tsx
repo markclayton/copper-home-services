@@ -13,8 +13,9 @@ export default function ContactPage() {
       subtitle="Real humans, on the other side of the email."
     >
       <p className="text-base">
-        We&apos;re a small team. We answer our own emails — usually within a
-        few hours, always within one business day.
+        We&apos;re a small team. Every email lands with a real person — no
+        auto-responder, no ticket queue — and we get back to you as soon as
+        we can.
       </p>
 
       <div className="not-prose mt-10">
