@@ -10,13 +10,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { GoogleAuthButton } from "@/components/google-auth-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { checkSignupAllowed } from "@/app/auth/sign-up/actions";
+import {
+  checkSignupAllowed,
+  recordTermsAcceptanceForOauth,
+} from "@/app/auth/sign-up/actions";
+import {
+  TERMS_ACCEPTANCE_META_KEY,
+  TERMS_VERSION,
+  TERMS_VERSION_META_KEY,
+} from "@/lib/legal";
 
 export function SignUpForm({
   className,
@@ -25,6 +34,7 @@ export function SignUpForm({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -34,6 +44,12 @@ export function SignUpForm({
     const supabase = createClient();
     setIsLoading(true);
     setError(null);
+
+    if (!termsAccepted) {
+      setError("Please agree to the Terms of Service and Privacy Policy.");
+      setIsLoading(false);
+      return;
+    }
 
     if (password !== repeatPassword) {
       setError("Passwords do not match");
@@ -51,11 +67,16 @@ export function SignUpForm({
     }
 
     try {
+      const acceptedAt = new Date().toISOString();
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/onboard/business`,
+          data: {
+            [TERMS_ACCEPTANCE_META_KEY]: acceptedAt,
+            [TERMS_VERSION_META_KEY]: TERMS_VERSION,
+          },
         },
       });
       if (error) throw error;
@@ -86,7 +107,12 @@ export function SignUpForm({
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4">
-            <GoogleAuthButton label="Sign up with Google" />
+            <GoogleAuthButton
+              label="Sign up with Google"
+              disabled={!termsAccepted}
+              disabledReason="Please agree to the Terms of Service and Privacy Policy first."
+              onBeforeRedirect={recordTermsAcceptanceForOauth}
+            />
             <div className="relative text-center text-xs uppercase tracking-wider text-muted-foreground">
               <span className="absolute inset-y-1/2 left-0 h-px w-[40%] bg-border" />
               <span className="bg-card px-2">or</span>
@@ -130,8 +156,41 @@ export function SignUpForm({
                   onChange={(e) => setRepeatPassword(e.target.value)}
                 />
               </div>
+              <label className="flex items-start gap-2.5 text-sm leading-relaxed cursor-pointer">
+                <Checkbox
+                  checked={termsAccepted}
+                  onCheckedChange={(checked) => setTermsAccepted(!!checked)}
+                  className="mt-0.5"
+                  aria-label="I agree to the Terms of Service and Privacy Policy"
+                />
+                <span className="text-muted-foreground">
+                  I&apos;ve read and agree to the{" "}
+                  <Link
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    Terms of Service
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    Privacy Policy
+                  </Link>
+                  .
+                </span>
+              </label>
               {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading || !termsAccepted}
+              >
                 {isLoading ? "Creating an account..." : "Sign up"}
               </Button>
             </div>
