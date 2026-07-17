@@ -12,12 +12,18 @@
  */
 
 import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { businesses } from "@/lib/db/schema";
 import { isEmailAllowlisted } from "@/lib/auth/allowlist";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import {
+  TERMS_ACCEPTANCE_COOKIE,
+  TERMS_ACCEPTANCE_META_KEY,
+  TERMS_VERSION_META_KEY,
+} from "@/lib/legal";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -65,6 +71,42 @@ export async function GET(request: NextRequest) {
       });
     }
     return NextResponse.redirect(`${origin}/auth/waitlist`);
+  }
+
+  // Consume the terms-acceptance cookie set by the signup page before it
+  // kicked off Google OAuth, and write the values into the user's metadata.
+  // Only writes on new users (no existing business row) so returning users
+  // signing in via Google don't have their prior acceptance overwritten with
+  // a fresh timestamp.
+  if (!existingBusiness) {
+    const cookieStore = await cookies();
+    const rawCookie = cookieStore.get(TERMS_ACCEPTANCE_COOKIE)?.value;
+    if (rawCookie) {
+      try {
+        const parsed = JSON.parse(rawCookie) as {
+          acceptedAt?: string;
+          version?: string;
+        };
+        if (parsed.acceptedAt && parsed.version) {
+          const currentMeta =
+            (data.user.user_metadata as Record<string, unknown> | null) ?? {};
+          await supabase.auth.updateUser({
+            data: {
+              ...currentMeta,
+              [TERMS_ACCEPTANCE_META_KEY]: parsed.acceptedAt,
+              [TERMS_VERSION_META_KEY]: parsed.version,
+            },
+          });
+        }
+      } catch (err) {
+        // Malformed cookie shouldn't block sign-in — log and continue.
+        console.error("[oauth-callback] failed to parse terms cookie", {
+          userId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+      cookieStore.delete(TERMS_ACCEPTANCE_COOKIE);
+    }
   }
 
   return NextResponse.redirect(`${origin}${next}`);

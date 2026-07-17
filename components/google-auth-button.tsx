@@ -12,15 +12,38 @@ import { Button } from "@/components/ui/button";
  */
 export function GoogleAuthButton({
   label = "Continue with Google",
+  disabled,
+  onBeforeRedirect,
+  disabledReason,
 }: {
   label?: string;
+  disabled?: boolean;
+  /** Runs before the OAuth redirect starts. Used by the signup page to
+   *  drop a short-lived cookie recording terms acceptance so the callback
+   *  route can write it into the user's metadata. */
+  onBeforeRedirect?: () => Promise<void> | void;
+  /** Shown as an inline hint when the button is disabled by the parent. */
+  disabledReason?: string;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleClick = async () => {
+    if (disabled) {
+      setError(disabledReason ?? null);
+      return;
+    }
     setLoading(true);
     setError(null);
+    if (onBeforeRedirect) {
+      try {
+        await onBeforeRedirect();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+        setLoading(false);
+        return;
+      }
+    }
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -42,7 +65,7 @@ export function GoogleAuthButton({
         variant="outline"
         className="w-full"
         onClick={handleClick}
-        disabled={loading}
+        disabled={loading || disabled}
       >
         <GoogleLogo />
         {loading ? "Redirecting…" : label}

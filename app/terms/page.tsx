@@ -1,4 +1,5 @@
 import { MarketingShell } from "@/components/marketing/marketing-shell";
+import { TERMS_VERSION_LABEL } from "@/lib/legal";
 
 export const metadata = {
   title: "Terms · Copper",
@@ -10,12 +11,20 @@ export default function TermsPage() {
     <MarketingShell
       title="Terms of Service"
       subtitle="The agreement between you and Copper."
-      updated="May 2026"
+      updated={TERMS_VERSION_LABEL}
     >
       <p className="text-base">
-        This is a working draft. We&apos;ll have it reviewed by counsel
-        before opening to the general public. By using Copper you agree to
-        the terms below.
+        By using Copper you agree to the terms below.
+      </p>
+
+      <h2>Acceptance</h2>
+      <p>
+        By creating an account and checking the &quot;I agree&quot; box during
+        signup, you agreed to these Terms of Service as of the date recorded
+        on your account. If you don&apos;t agree to any part of these terms,
+        don&apos;t create an account or use the service. If you&apos;re
+        agreeing on behalf of a business or other entity, you represent that
+        you have authority to bind that entity to these terms.
       </p>
 
       <h2>What Copper does</h2>
@@ -35,16 +44,25 @@ export default function TermsPage() {
         information you provide.
       </p>
 
-      <h2>Pricing and billing</h2>
+      <h2>Fees and financial responsibility</h2>
       <p>
         Copper is offered in self-serve tiers (Solo at $79/month, Business at
         $249/month) and a Custom tier for multi-location operations and
         integrations (quoted directly). Subscriptions are billed monthly via
         Stripe starting on the day you sign up. There&apos;s no setup fee on
-        the self-serve tiers. Carrier costs for SMS and outbound calls are
-        passed through at cost (typically under $20/month). You can cancel
-        anytime; cancellations take effect at the end of the current billing
-        period and you won&apos;t be charged again.
+        the self-serve tiers. Fees are non-refundable except where required
+        by law. You can cancel anytime; cancellations take effect at the end
+        of the current billing period and you won&apos;t be charged again.
+      </p>
+      <p>
+        You are financially responsible for all activity on your account,
+        including subscription fees, overage charges above your plan&apos;s
+        included voice minutes and SMS allowances, and pass-through
+        third-party costs for telephony, SMS, and voice AI providers
+        (Twilio, Vapi, and others). Standard passthrough costs typically run
+        under $20/month, but your actual charges depend on your usage. If we
+        can&apos;t collect a payment, we may suspend your service until the
+        balance is settled.
       </p>
 
       <h2>Acceptable use</h2>
@@ -111,20 +129,105 @@ export default function TermsPage() {
         immediate account suspension and reporting to your carrier.
       </p>
 
-      <h2>Service availability</h2>
+      <h2>Your responsibility for AI output and brand</h2>
+      <p>
+        You configure the AI receptionist — the voice, the FAQs, the
+        services list, the emergency criteria, the after-hours policy, the
+        transfer number, and everything in your knowledge base. The AI
+        answers callers based on that configuration and the tools you
+        enable. You own how the AI represents your business.
+      </p>
+      <p>You are solely responsible for:</p>
+      <ul>
+        <li>What your callers experience on the phone with the AI.</li>
+        <li>
+          Any impact of the AI&apos;s behavior on your brand, reputation,
+          customer relationships, or third-party goodwill.
+        </li>
+        <li>
+          Reviewing call transcripts and adjusting the AI&apos;s
+          configuration as needed.
+        </li>
+      </ul>
+      <p>
+        Copper is not responsible for caller experience, brand impact,
+        customer complaints, lost bookings, missed leads, or any
+        reputational consequences arising from the AI&apos;s operation on
+        your behalf.
+      </p>
+
+      <h2>Warranties and disclaimers</h2>
+      <p>
+        Copper is provided &quot;AS IS&quot; and &quot;AS AVAILABLE&quot;
+        without warranties of any kind, express or implied. We do not
+        warrant that the service will be uninterrupted, error-free, secure,
+        or that it will meet your specific requirements. We do not warrant
+        any particular caller experience, uptime level, transcription
+        accuracy, booking accuracy, SMS deliverability, or business outcome.
+      </p>
       <p>
         We aim for 99.5% uptime but don&apos;t guarantee it. Outages can
         happen — at Twilio, Vapi, Supabase, our hosting provider, or on our
-        side. We don&apos;t accept liability for missed calls, lost bookings,
-        undelivered SMS, or other indirect damages caused by downtime.
+        side.
+      </p>
+      <p>
+        To the maximum extent permitted by law, we disclaim all implied
+        warranties, including merchantability, fitness for a particular
+        purpose, and non-infringement.
+      </p>
+
+      <h2>Limitation of liability</h2>
+      <p>
+        To the maximum extent permitted by law, Copper&apos;s total
+        aggregate liability arising out of or related to these terms or
+        your use of the service — whether in contract, tort, or otherwise —
+        will not exceed the total amount you paid us in the twelve (12)
+        months preceding the event giving rise to the claim.
+      </p>
+      <p>
+        In no event will Copper be liable for any indirect, incidental,
+        special, consequential, exemplary, or punitive damages; lost
+        profits, lost revenue, lost business opportunity, lost goodwill, or
+        reputational harm; or the cost of substitute services — even if
+        we&apos;ve been advised of the possibility of such damages. These
+        limitations apply even if a remedy fails of its essential purpose.
+      </p>
+
+      <h2>Indemnification</h2>
+      <p>
+        You agree to defend, indemnify, and hold harmless Copper, its
+        officers, employees, and agents from and against any third-party
+        claim, demand, loss, or expense (including reasonable attorney fees)
+        arising out of or related to: (a) your use of the service, (b) your
+        violation of these terms, (c) content or configuration you provide
+        to the service, (d) the AI&apos;s behavior on calls made on your
+        behalf, or (e) your violation of any law or third-party right,
+        including telecommunications and consumer protection laws.
       </p>
 
       <h2>Termination</h2>
       <p>
-        You can cancel anytime from your dashboard or by emailing us. We can
-        suspend or terminate your account for breach of these terms, abuse,
-        non-payment, or use that puts our infrastructure or carrier
-        registration at risk.
+        You can cancel your subscription anytime from your dashboard or by
+        emailing us. Cancellations take effect at the end of the current
+        billing period.
+      </p>
+      <p>
+        We may suspend or terminate your account at our discretion, at any
+        time, with or without cause, and with reasonable notice — or
+        immediately without notice for breach of these terms, non-payment,
+        abuse of the service, activity that puts our infrastructure or
+        carrier registration at risk, or where required by law. On
+        termination, we may delete your data after a reasonable period.
+      </p>
+
+      <h2>Governing law and disputes</h2>
+      <p>
+        These Terms and any dispute arising out of or related to them or the
+        service are governed by the laws of the State of Texas, without
+        regard to its conflict-of-laws principles. Any dispute will be
+        brought exclusively in the state or federal courts sitting in Texas,
+        and you and Copper consent to the personal jurisdiction of those
+        courts.
       </p>
 
       <h2>Changes to these terms</h2>

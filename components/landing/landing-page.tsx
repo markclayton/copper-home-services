@@ -1270,6 +1270,7 @@ export function SiteFooter() {
             { label: "Contact", href: "/contact" },
             { label: "Privacy", href: "/privacy" },
             { label: "Terms", href: "/terms" },
+            { label: "Security", href: "/security" },
           ]}
         />
         <FooterCol
